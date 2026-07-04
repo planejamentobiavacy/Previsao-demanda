@@ -920,8 +920,8 @@
      proteção dos dados vem da RLS configurada no Supabase, não do segredo. -->
 <script type="module">
   import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-const SUPABASE_URL = 'https://svqxupjtqgzziedgmxaq.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_cuAk4XUIPMKybEkTJDE9mQ_SOR3g4SV'; 
+  const SUPABASE_URL = 'https://SEU_PROJETO.supabase.co';   // ← troque
+  const SUPABASE_KEY = 'SUA_PUBLISHABLE_KEY';               // ← troque
   const configurado = !/SEU_PROJETO|SUA_PUBLISHABLE_KEY/.test(SUPABASE_URL + SUPABASE_KEY);
   window._supabaseReady = configurado;
   if (configurado) {
@@ -1084,7 +1084,6 @@ const SUPABASE_KEY = 'sb_publishable_cuAk4XUIPMKybEkTJDE9mQ_SOR3g4SV';
     <div class="btn-actions">
       <button class="btn btn-secondary" onclick="goStep(1)">← Voltar</button>
       <button class="btn btn-secondary" onclick="abrirCenario()" style="border-color:#7c3aed;color:#7c3aed;">📂 Abrir cenário</button>
-      <button class="btn btn-secondary" onclick="salvarCenario()" style="border-color:#059669;color:#059669;">💾 Salvar cenário</button>
       <button class="btn btn-primary" id="btnCalcular" onclick="calcularTodos()">Calcular Previsão →</button>
     </div>
   </div>
@@ -1100,7 +1099,11 @@ const SUPABASE_KEY = 'sb_publishable_cuAk4XUIPMKybEkTJDE9mQ_SOR3g4SV';
           🛒 Projeção de Compra
         </button>
       </div>
-      <span class="step-tag" id="resultSub" style="margin-left:auto;">Step 03 / 03</span>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-secondary" onclick="abrirCenario()" style="border-color:#7c3aed;color:#7c3aed;font-size:12px;">📂 Abrir</button>
+        <button class="btn btn-secondary" onclick="salvarCenario()" style="border-color:#059669;color:#059669;font-size:12px;">💾 Salvar cenário</button>
+        <span class="step-tag" id="resultSub">Step 03 / 03</span>
+      </div>
     </div>
 
     <div class="summary-row" id="summaryRow"></div>
@@ -5316,8 +5319,9 @@ function closeHist() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// SALVAMENTO DE CENÁRIOS (Supabase) — salva só a CONFIGURAÇÃO;
-// ao abrir, restaura os parâmetros e RECALCULA a projeção.
+// SALVAMENTO DE CENÁRIOS (Supabase) — salva a CONFIGURAÇÃO + os
+// AJUSTES (exclusões de barras, travas de projeção e cobertura).
+// Ao abrir: recalcula a partir da base e reaplica os ajustes.
 // ══════════════════════════════════════════════════════════════
 
 // Captura a configuração atual da tela (fornecedor, marca e todos os meses/params)
@@ -5398,16 +5402,58 @@ async function salvarCenario() {
   const autor = prompt('Seu nome (opcional):', '') || null;
 
   const cfg = capturarConfigAtual();
+  const ajustes = capturarAjustes();
   try {
     const { error } = await window.supabase.from('projecoes').insert({
       nome, fornecedor: forn, marca, criado_por: autor,
-      config: { meses: cfg.meses }
+      config: { meses: cfg.meses, ajustes }
     });
     if (error) throw error;
-    toast('✅ Cenário salvo!', 'success');
+    toast('✅ Cenário salvo (com os ajustes)!', 'success');
   } catch (e) {
     toast('Erro ao salvar: ' + (e.message || e), 'error');
   }
+}
+
+// Captura os ajustes feitos na tela de resultados:
+// exclusões de barras, travas manuais de projeção e cobertura da compra.
+function capturarAjustes() {
+  const ignorados = {};
+  const map = window._mesesIgnoradosByProd || {};
+  Object.keys(map).forEach(k => {
+    const set = map[k];
+    if (set && set.size) ignorados[k] = [...set];
+  });
+  const travas = [];
+  const allRows = (window._exportData && window._exportData.allRows) || [];
+  allRows.forEach(r => {
+    if (r._ajusteManual === true) {
+      travas.push({ familia: r.nome_familia, cor: r.desc_cor, anomes: r.anomes, qtdProj: r.qtdProj });
+    }
+  });
+  const cobertura = document.getElementById('coberturaPlanejada')?.value || '2';
+  return { ignorados, travas, cobertura };
+}
+
+// Reaplica os ajustes após o recálculo (calcularTodos)
+function aplicarAjustes(aj) {
+  if (!aj || !window._exportData) return;
+  // Exclusões de barras (meses ignorados por produto)
+  window._mesesIgnoradosByProd = window._mesesIgnoradosByProd || {};
+  Object.keys(aj.ignorados || {}).forEach(k => {
+    window._mesesIgnoradosByProd[k] = new Set(aj.ignorados[k] || []);
+  });
+  // Travas manuais de projeção
+  const allRows = window._exportData.allRows || [];
+  (aj.travas || []).forEach(t => {
+    const row = allRows.find(r => r.nome_familia === t.familia && r.desc_cor === t.cor && r.anomes === t.anomes);
+    if (row) { row._ajusteManual = true; row.qtdProj = t.qtdProj; }
+  });
+  // Cobertura da projeção de compra
+  const cob = document.getElementById('coberturaPlanejada');
+  if (cob && aj.cobertura != null) cob.value = aj.cobertura;
+  // Recalcula respeitando exclusões + travas e re-renderiza as tabelas
+  if (typeof recalcularComMesesIgnorados === 'function') recalcularComMesesIgnorados();
 }
 
 async function abrirCenario() {
@@ -5457,8 +5503,17 @@ async function carregarCenario(id) {
     if (!ok) return;
     goStep(2);
     toast('Cenário carregado — recalculando…', 'success');
-    // Recalcula com a configuração restaurada
-    setTimeout(() => { try { calcularTodos(); } catch(e){ console.error(e); } }, 100);
+    const ajustes = data.config?.ajustes || null;
+    // Recalcula com a configuração restaurada e depois reaplica os ajustes
+    setTimeout(() => {
+      try {
+        calcularTodos();
+        if (ajustes) {
+          // pequeno atraso p/ garantir que allRows/render terminaram
+          setTimeout(() => { try { aplicarAjustes(ajustes); } catch(e){ console.error(e); } }, 150);
+        }
+      } catch(e){ console.error(e); }
+    }, 100);
   } catch (e) {
     toast('Erro ao abrir cenário: ' + (e.message || e), 'error');
   }

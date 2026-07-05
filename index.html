@@ -4043,7 +4043,12 @@ function showHistGrade(familia, cor, grade, descGrade, forn, marca) {
     ${(window._exportData && window._gradeData) ? (() => {
       const mesesP = window._exportData.meses || [];
       const esc = s => String(s).replace(/'/g,"\\'");
-      return `<div style="margin-top:18px;padding:16px 20px;background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #ea580c;border-radius:8px;">
+      const abertoG = window._painelAjusteGradeAberto === true;
+      return `<div style="margin-top:18px;">
+        <button onclick="togglePainelAjusteGrade()" style="background:${abertoG?'#ea580c':'#fff'};color:${abertoG?'#fff':'#ea580c'};border:1.5px solid #ea580c;padding:8px 16px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:12px;font-weight:800;letter-spacing:0.5px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">
+          ✏️ ${abertoG ? 'Ocultar edição por mês' : 'Editar projeção por mês'}
+        </button>
+      <div id="wrapAjusteGrade" style="display:${abertoG?'block':'none'};margin-top:12px;padding:16px 20px;background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #ea580c;border-radius:8px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
           <span style="font-size:11px;font-weight:800;color:#ea580c;letter-spacing:1.2px;">✏️ AJUSTE MANUAL DA GRADE</span>
           <span style="font-size:11px;color:#9a3412;font-style:italic;">"Recalcular à frente" mantém a curva; a diferença é redistribuída entre as outras grades da opção</span>
@@ -4072,6 +4077,7 @@ function showHistGrade(familia, cor, grade, descGrade, forn, marca) {
             </div>
           </div>`;
         }).join('')}
+      </div>
       </div>`;
     })() : ''}
   `;
@@ -4926,8 +4932,13 @@ function showHist(familia, cor, forn, marca) {
     ${(window._currentHistRow && window._exportData) ? (() => {
       const meses = window._exportData.meses || [];
       const allRows = window._exportData.allRows || [];
+      const aberto = window._painelAjusteAberto === true;
       // Para cada mês projetado, mostra linha com input editável
-      return `<div style="margin-top:18px;padding:16px 20px;background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #ea580c;border-radius:8px;">
+      return `<div style="margin-top:18px;">
+        <button onclick="togglePainelAjusteProd()" style="background:${aberto?'#ea580c':'#fff'};color:${aberto?'#fff':'#ea580c'};border:1.5px solid #ea580c;padding:8px 16px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:12px;font-weight:800;letter-spacing:0.5px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">
+          ✏️ ${aberto ? 'Ocultar edição por mês' : 'Editar projeção por mês'}
+        </button>
+      <div id="wrapAjusteProd" style="display:${aberto?'block':'none'};margin-top:12px;padding:16px 20px;background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #ea580c;border-radius:8px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
           <span style="font-size:11px;font-weight:800;color:#ea580c;letter-spacing:1.2px;">✏️ AJUSTE MANUAL DA PROJEÇÃO</span>
           <span style="font-size:11px;color:#9a3412;font-style:italic;">Travado contra recálculos — a diferença é redistribuída entre os outros produtos da marca</span>
@@ -4963,6 +4974,7 @@ function showHist(familia, cor, forn, marca) {
             </div>
           </div>`;
         }).join('')}
+      </div>
       </div>`;
     })() : ''}
   `;
@@ -5337,6 +5349,7 @@ function restaurarTodosMesesGrade() {
 // seguintes mantendo a forma da curva atual, ancorada no valor informado.
 function aplicarAjusteGrade(familia, cor, grade, anomes, cascata) {
   if (!window._exportData || !window._gradeData) return;
+  window._painelAjusteGradeAberto = true;
   const inp = document.getElementById(`ajusteGrade-${anomes}`);
   if (!inp) return;
   const V = parseFloat(inp.value);
@@ -5370,6 +5383,7 @@ function aplicarAjusteGrade(familia, cor, grade, anomes, cascata) {
 }
 
 function liberarAjusteGrade(familia, cor, grade, anomes) {
+  window._painelAjusteGradeAberto = true;
   const gk = familia + '|||' + cor + '|||' + String(grade);
   if (window._ajusteGrade && window._ajusteGrade[gk]) {
     delete window._ajusteGrade[gk][anomes];
@@ -5385,6 +5399,7 @@ function liberarAjusteGrade(familia, cor, grade, anomes) {
 // ── AJUSTE MANUAL DA PROJEÇÃO ─────────────────────────────────
 function aplicarAjusteManual(familia, cor, anomes) {
   if (!window._exportData) return;
+  window._painelAjusteAberto = true;
   const inputEl = document.getElementById(`ajusteManual-${anomes}`);
   if (!inputEl) return;
 
@@ -5416,6 +5431,7 @@ function aplicarAjusteManual(familia, cor, anomes) {
 // mantendo a forma da curva atual (proporcional), ancorada no novo valor.
 function aplicarAjusteCascata(familia, cor, anomes) {
   if (!window._exportData) return;
+  window._painelAjusteAberto = true;
   const inputEl = document.getElementById(`ajusteManual-${anomes}`);
   if (!inputEl) return;
   const V = parseFloat(inputEl.value);
@@ -5457,6 +5473,7 @@ function aplicarAjusteCascata(familia, cor, anomes) {
 
 function liberarAjusteManual(familia, cor, anomes) {
   if (!window._exportData) return;
+  window._painelAjusteAberto = true;
   const linha = window._exportData.allRows.find(r =>
     r.nome_familia === familia && r.desc_cor === cor && r.anomes === anomes
   );
@@ -5608,6 +5625,27 @@ function recalcularComMesesIgnorados() {
 
 function closeHist() {
   document.getElementById('histModal').style.display = 'none';
+  // Ao fechar, o painel de edição volta recolhido na próxima abertura
+  window._painelAjusteAberto = false;
+  window._painelAjusteGradeAberto = false;
+}
+
+// Mostra/oculta o painel de edição por mês (produto)
+function togglePainelAjusteProd() {
+  window._painelAjusteAberto = !window._painelAjusteAberto;
+  if (window._currentProductCtx) {
+    const { familia, cor, forn, marca } = window._currentProductCtx;
+    showHist(familia, cor, forn, marca);
+  }
+}
+
+// Mostra/oculta o painel de edição por mês (grade)
+function togglePainelAjusteGrade() {
+  window._painelAjusteGradeAberto = !window._painelAjusteGradeAberto;
+  if (window._currentGradeCtx) {
+    const { familia, cor, grade, descGrade, forn, marca } = window._currentGradeCtx;
+    showHistGrade(familia, cor, grade, descGrade, forn, marca);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════

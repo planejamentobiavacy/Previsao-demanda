@@ -3383,9 +3383,11 @@ function doRenderGradeTab() {
 
       // Calcula shares (grade ÷ opção) em cada mês não-rupturado/não-outlier
       const sharesGrade = [];
+      const ignoradosGrade = (window._mesesIgnoradosByGrade && window._mesesIgnoradosByGrade[gradeK]) || null;
       vendasPorGrade[gradeK].forEach(v => {
         const kGM = gradeK + '|' + v.ano_mes;
         if (rupturaGrade.has(kGM) || outlierGrade.has(kGM)) return;
+        if (ignoradosGrade && ignoradosGrade.has(v.ano_mes)) return;  // exclusão manual do usuário
         const totalOpcaoNoMes = vendasOpcaoMes[opK + '|' + v.ano_mes] || 0;
         if (totalOpcaoNoMes <= 0 || v.cx <= 0) return;
         sharesGrade.push({
@@ -3460,6 +3462,50 @@ function doRenderGradeTab() {
       maior.qtdProj += diff;
     }
   });
+
+  // 6b. Overrides manuais por GRADE (ajuste + cascata). Mantém o total do
+  //     mês = projOpcao, redistribuindo o restante entre as grades NÃO ajustadas.
+  if (window._ajusteGrade && Object.keys(window._ajusteGrade).length) {
+    Object.keys(grupos).forEach(k => {
+      const grupo = grupos[k];
+      if (!grupo.length) return;
+      const projOpcao = grupo[0].projOpcao;
+      const comOverride = [], semOverride = [];
+      grupo.forEach(l => {
+        const gk = l.nome_familia + '|||' + l.desc_cor + '|||' + String(l.grade);
+        const ov = window._ajusteGrade[gk];
+        if (ov && ov[l.anomes] != null) {
+          l.qtdProj = Math.max(0, Math.round(ov[l.anomes]));
+          l._ajusteManualGrade = true;
+          comOverride.push(l);
+        } else {
+          l._ajusteManualGrade = false;
+          semOverride.push(l);
+        }
+      });
+      if (!comOverride.length) return;
+      const somaOverride = comOverride.reduce((s,l) => s + l.qtdProj, 0);
+      const restante = projOpcao - somaOverride;
+      if (restante <= 0) {
+        semOverride.forEach(l => l.qtdProj = 0);
+      } else {
+        const somaShareSem = semOverride.reduce((s,l) => s + l.shareMedio, 0);
+        if (somaShareSem > 0) {
+          semOverride.forEach(l => { l.qtdProj = Math.round(restante * (l.shareMedio / somaShareSem)); });
+        } else if (semOverride.length) {
+          const parte = Math.round(restante / semOverride.length);
+          semOverride.forEach(l => l.qtdProj = parte);
+        }
+        // arredondamento no restante
+        const soma2 = grupo.reduce((s,l) => s + l.qtdProj, 0);
+        const d2 = projOpcao - soma2;
+        if (d2 !== 0 && semOverride.length) {
+          const maiorSem = [...semOverride].sort((a,b) => b.qtdProj - a.qtdProj)[0];
+          if (maiorSem) maiorSem.qtdProj += d2;
+        }
+      }
+    });
+  }
 
   // 7. Ordena: por família, cor, grade
   linhasGrade.sort((a, b) => {
@@ -3691,6 +3737,9 @@ function doRenderGradeTab() {
 function showHistGrade(familia, cor, grade, descGrade, forn, marca) {
   // Salva contexto da grade atual para o painel de info
   window._currentGradeCtx = { familia, cor, grade, descGrade, forn, marca };
+  // Meses excluídos manualmente desta grade (afetam o share)
+  const gradeKeyIgn = familia + '|||' + cor + '|||' + grade;
+  const ignoradosGradeSet = (window._mesesIgnoradosByGrade && window._mesesIgnoradosByGrade[gradeKeyIgn]) || new Set();
 
   // Pega a linha da grade calculada no _gradeData
   let linhaGrade = null;
@@ -3887,14 +3936,23 @@ function showHistGrade(familia, cor, grade, descGrade, forn, marca) {
     const y = topPad + chartH - h;
     const cx = x + barW / 2;
     const isProj = projGradeMap[p] !== undefined;
-    const opacity = isProj ? 1 : 0.92;
+    const isIgnorado = ignoradosGradeSet.has(p);
+    const clickable = !isProj;  // só histórico é excluível (afeta o share)
+    const opacity = isIgnorado ? 0.4 : (isProj ? 1 : 0.92);
     const isDescMin = setDescMin.has(p);
     const isDescMax = setDescMax.has(p);
     const isDescartado = isDescMin || isDescMax;
-    return `<g>
+    const onclick = clickable ? `onclick="toggleIgnoreMesGrade('${p}')"` : '';
+    const cursor  = clickable ? 'pointer' : 'default';
+    return `<g style="cursor:${cursor}" ${onclick}>
       <rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${col}" rx="4" opacity="${opacity}"/>
       ${isProj ? `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="url(#stripeProj)" rx="4" opacity="0.15"/>` : ''}
-      ${isDescartado ? (() => {
+      ${isIgnorado ? `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="#fee2e2" stroke="#dc2626" stroke-width="2" stroke-dasharray="3,3" rx="4" opacity="0.7"/>
+        <line x1="${x+4}" y1="${y+4}" x2="${x+barW-4}" y2="${y+h-4}" stroke="#dc2626" stroke-width="2.5"/>
+        <line x1="${x+barW-4}" y1="${y+4}" x2="${x+4}" y2="${y+h-4}" stroke="#dc2626" stroke-width="2.5"/>
+        <rect x="${x+barW/2-32}" y="${y-16}" width="64" height="14" fill="#dc2626" rx="3"/>
+        <text x="${cx}" y="${y-5}" text-anchor="middle" font-size="9" fill="#fff" font-weight="800" font-family="Barlow,sans-serif">IGNORADO</text>` : ''}
+      ${(isDescartado && !isIgnorado) ? (() => {
         const borderColor = isDescMin ? '#dc2626' : '#ea580c';
         const badgeBg     = isDescMin ? '#fee2e2' : '#ffedd5';
         const badgeText   = isDescMin ? '#991b1b' : '#9a3412';
@@ -3904,10 +3962,10 @@ function showHistGrade(familia, cor, grade, descGrade, forn, marca) {
           <rect x="${x+barW/2-26}" y="${y-30}" width="52" height="13" fill="${badgeBg}" stroke="${borderColor}" stroke-width="1" rx="3"/>
           <text x="${cx}" y="${y-20}" text-anchor="middle" font-size="8" fill="${badgeText}" font-weight="800" font-family="Barlow,sans-serif">${icon} ${labelTxt}</text>`;
       })() : ''}
-      ${lbl ? `<rect x="${x+2}" y="${y-16}" width="${barW-4}" height="14" fill="${col}" rx="3" opacity="0.15"/>
+      ${(lbl && !isIgnorado) ? `<rect x="${x+2}" y="${y-16}" width="${barW-4}" height="14" fill="${col}" rx="3" opacity="0.15"/>
         <text x="${cx}" y="${y-5}" text-anchor="middle" font-size="9" fill="${col}" font-weight="800" font-family="Barlow,sans-serif">${lbl}</text>` : ''}
-      <text x="${cx}" y="${y-22}" text-anchor="middle" font-size="13" fill="#1e293b" font-weight="800" font-family="Barlow,sans-serif">${v.toLocaleString('pt-BR')}</text>
-      <text x="${cx}" y="${topPad+chartH+16}" text-anchor="end" font-size="10" fill="${isProj?'#059669':'#475569'}" font-weight="${isProj?'700':'400'}" font-family="Barlow,sans-serif" transform="rotate(-40 ${cx} ${topPad+chartH+16})">${fmt(p)}</text>
+      <text x="${cx}" y="${y-(lbl||isIgnorado?22:6)}" text-anchor="middle" font-size="13" fill="${isIgnorado?'#94a3b8':'#1e293b'}" font-weight="800" font-family="Barlow,sans-serif" text-decoration="${isIgnorado?'line-through':'none'}">${v.toLocaleString('pt-BR')}</text>
+      <text x="${cx}" y="${topPad+chartH+16}" text-anchor="end" font-size="10" fill="${isProj?'#059669':(isIgnorado?'#dc2626':'#475569')}" font-weight="${isProj||isIgnorado?'700':'400'}" font-family="Barlow,sans-serif" transform="rotate(-40 ${cx} ${topPad+chartH+16})">${fmt(p)}</text>
       ${haStkData ? (() => {
         const estoque = estoquePorMes[p] || 0;
         const venda = agg[p] || projGradeMap[p] || 0;
@@ -3920,6 +3978,7 @@ function showHistGrade(familia, cor, grade, descGrade, forn, marca) {
         return `<rect x="${x+1}" y="${topPad+chartH+58}" width="${barW-2}" height="14" fill="${stkBg}" rx="3"/>
                 <text x="${cx}" y="${topPad+chartH+68}" text-anchor="middle" font-size="9" fill="${stkColor}" font-weight="700" font-family="Barlow,sans-serif">📦 ${estoque.toLocaleString('pt-BR')}</text>`;
       })() : ''}
+      ${clickable ? `<title>Clique para ${isIgnorado?'voltar a considerar':'excluir'} este mês no cálculo do share da grade</title>` : ''}
     </g>`;
   }).join('');
 
@@ -3957,12 +4016,17 @@ function showHistGrade(familia, cor, grade, descGrade, forn, marca) {
       <span style="font-size:11px;color:#9a3412;font-weight:800;">🔺 MAIOR (descartado)</span>
     </div>`;
 
+  const temIgnoradosGrade = ignoradosGradeSet && ignoradosGradeSet.size > 0;
   const chartHTML = `
     <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px;padding:10px 16px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;">
       ${legend}
     </div>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;padding:8px 12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;flex-wrap:wrap;">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:8px 12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;flex-wrap:wrap;">
       <span style="font-size:10px;color:#64748b;font-weight:700;letter-spacing:0.5px;">TRIMMING:</span>${trimLegend}
+    </div>
+    <div style="font-size:11px;color:#1d4ed8;margin-bottom:16px;padding:6px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:5px;text-align:center;display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;">
+      <span>💡 <strong>Clique em qualquer barra do histórico para excluí-la</strong> — recalcula o share desta grade e redistribui entre as demais.</span>
+      ${temIgnoradosGrade ? `<button onclick="restaurarTodosMesesGrade()" style="background:#dc2626;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Barlow',sans-serif;">↺ Restaurar todos</button>` : ''}
     </div>
     <div style="overflow-x:auto;">
       <svg viewBox="-44 0 ${totalW+52} ${svgH}" xmlns="http://www.w3.org/2000/svg" style="width:100%;min-width:${Math.max(totalW+52,500)}px;height:${svgH}px;display:block;font-family:'Barlow',sans-serif;">
@@ -3976,6 +4040,40 @@ function showHistGrade(familia, cor, grade, descGrade, forn, marca) {
         ${divisor}
       </svg>
     </div>
+    ${(window._exportData && window._gradeData) ? (() => {
+      const mesesP = window._exportData.meses || [];
+      const esc = s => String(s).replace(/'/g,"\\'");
+      return `<div style="margin-top:18px;padding:16px 20px;background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #ea580c;border-radius:8px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:11px;font-weight:800;color:#ea580c;letter-spacing:1.2px;">✏️ AJUSTE MANUAL DA GRADE</span>
+          <span style="font-size:11px;color:#9a3412;font-style:italic;">"Recalcular à frente" mantém a curva; a diferença é redistribuída entre as outras grades da opção</span>
+        </div>
+        ${mesesP.map(mes => {
+          const lg = window._gradeData.find(g => g.nome_familia===familia && g.desc_cor===cor && String(g.grade)===String(grade) && g.anomes===mes.anomes);
+          const projAtual = lg ? (lg.qtdProj || 0) : 0;
+          const isOv = lg && lg._ajusteManualGrade;
+          return `<div style="display:flex;align-items:center;gap:14px;padding:8px 12px;background:#fff;border-radius:6px;margin-bottom:6px;flex-wrap:wrap;">
+            <span style="font-weight:700;color:#475569;font-size:13px;min-width:90px;">${mes.anomes.substring(4,6)}/${mes.anomes.substring(0,4)}</span>
+            <span style="color:#94a3b8;font-size:11px;">Projeção calculada:</span>
+            <span style="font-weight:700;color:${isOv?'#94a3b8':'#059669'};font-size:14px;text-decoration:${isOv?'line-through':'none'};">${projAtual.toLocaleString('pt-BR')} CX</span>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              ${isOv ? '<span style="background:#fee2e2;color:#991b1b;padding:3px 9px;border-radius:4px;font-size:10px;font-weight:800;">🔒 AJUSTADO</span>' : ''}
+              <label style="font-size:11px;color:#9a3412;font-weight:600;">Ajustar para:</label>
+              <input type="number" id="ajusteGrade-${mes.anomes}" min="0" step="1" value="${isOv?projAtual:''}" placeholder="${projAtual}"
+                style="background:#fff;border:1.5px solid #fed7aa;border-radius:5px;color:#1e293b;font-family:'Barlow',sans-serif;font-size:14px;font-weight:800;padding:6px 10px;width:100px;text-align:right;outline:none;">
+              <span style="font-size:11px;color:#9a3412;font-weight:700;">CX</span>
+              <button onclick="aplicarAjusteGrade('${esc(familia)}','${esc(cor)}','${esc(grade)}','${mes.anomes}',false)"
+                style="background:#ea580c;color:#fff;border:none;padding:6px 12px;border-radius:5px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;">✓ Aplicar</button>
+              <button onclick="aplicarAjusteGrade('${esc(familia)}','${esc(cor)}','${esc(grade)}','${mes.anomes}',true)"
+                title="Fixa este mês e recalcula os seguintes mantendo a curva"
+                style="background:#7c3aed;color:#fff;border:none;padding:6px 12px;border-radius:5px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;">↻ Recalcular à frente</button>
+              ${isOv ? `<button onclick="liberarAjusteGrade('${esc(familia)}','${esc(cor)}','${esc(grade)}','${mes.anomes}')"
+                style="background:#fff;color:#dc2626;border:1px solid #fecaca;padding:6px 10px;border-radius:5px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:700;cursor:pointer;">🗑 Liberar</button>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    })() : ''}
   `;
 
   document.getElementById('histBody').innerHTML = chartHTML;
@@ -4855,6 +4953,11 @@ function showHist(familia, cor, forn, marca) {
                 style="background:#ea580c;color:#fff;border:none;padding:6px 14px;border-radius:5px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;letter-spacing:0.5px;cursor:pointer;">
                 ${isLocked ? '↻ Refazer' : '✓ Aplicar'}
               </button>
+              <button onclick="aplicarAjusteCascata('${familia.replace(/'/g,"\\'")}','${cor.replace(/'/g,"\\'")}','${mes.anomes}')"
+                title="Fixa este mês e recalcula os meses seguintes mantendo a curva sazonal"
+                style="background:#7c3aed;color:#fff;border:none;padding:6px 14px;border-radius:5px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;letter-spacing:0.5px;cursor:pointer;">
+                ↻ Recalcular à frente
+              </button>
               ${isLocked ? `<button onclick="liberarAjusteManual('${familia.replace(/'/g,"\\'")}','${cor.replace(/'/g,"\\'")}','${mes.anomes}')"
                 style="background:#fff;color:#dc2626;border:1px solid #fecaca;padding:6px 10px;border-radius:5px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:700;cursor:pointer;">🗑 Liberar</button>` : ''}
             </div>
@@ -5202,6 +5305,83 @@ function toggleIgnoreMes(ano_mes) {
   showHist(familia, cor, forn, marca);
 }
 
+// Exclusão de meses por GRADE — recalcula o share da grade dentro da opção
+function toggleIgnoreMesGrade(ano_mes) {
+  if (!window._currentGradeCtx || !window._exportData) return;
+  const { familia, cor, grade, descGrade, forn, marca } = window._currentGradeCtx;
+  const gradeKey = familia + '|||' + cor + '|||' + grade;
+  if (!window._mesesIgnoradosByGrade) window._mesesIgnoradosByGrade = {};
+  if (!window._mesesIgnoradosByGrade[gradeKey]) window._mesesIgnoradosByGrade[gradeKey] = new Set();
+  const set = window._mesesIgnoradosByGrade[gradeKey];
+
+  if (set.has(ano_mes)) set.delete(ano_mes);
+  else set.add(ano_mes);
+
+  // Recalcula a tabela de grades (recomputa shares) e re-renderiza o gráfico
+  doRenderGradeTab();
+  showHistGrade(familia, cor, grade, descGrade, forn, marca);
+}
+
+function restaurarTodosMesesGrade() {
+  if (!window._currentGradeCtx) return;
+  const { familia, cor, grade, descGrade, forn, marca } = window._currentGradeCtx;
+  const gradeKey = familia + '|||' + cor + '|||' + grade;
+  if (!window._mesesIgnoradosByGrade || !window._mesesIgnoradosByGrade[gradeKey] || window._mesesIgnoradosByGrade[gradeKey].size === 0) return;
+  window._mesesIgnoradosByGrade[gradeKey].clear();
+  doRenderGradeTab();
+  showHistGrade(familia, cor, grade, descGrade, forn, marca);
+  toast('Todos os meses foram restaurados no cálculo desta grade.', 'success');
+}
+
+// Ajuste manual de uma GRADE em um mês. Se cascata=true, recalcula os meses
+// seguintes mantendo a forma da curva atual, ancorada no valor informado.
+function aplicarAjusteGrade(familia, cor, grade, anomes, cascata) {
+  if (!window._exportData || !window._gradeData) return;
+  const inp = document.getElementById(`ajusteGrade-${anomes}`);
+  if (!inp) return;
+  const V = parseFloat(inp.value);
+  if (isNaN(V) || V < 0) { toast('Informe um valor válido em CX.', 'error'); return; }
+
+  const gk = familia + '|||' + cor + '|||' + String(grade);
+  if (!window._ajusteGrade) window._ajusteGrade = {};
+  if (!window._ajusteGrade[gk]) window._ajusteGrade[gk] = {};
+
+  const linhasGrade = window._gradeData
+    .filter(g => g.nome_familia === familia && g.desc_cor === cor && String(g.grade) === String(grade))
+    .sort((a, b) => a.anomes.localeCompare(b.anomes));
+  const idxM  = linhasGrade.findIndex(g => g.anomes === anomes);
+  const baseM = idxM >= 0 ? (linhasGrade[idxM].qtdProj || 0) : 0;
+
+  window._ajusteGrade[gk][anomes] = Math.round(V);
+  if (cascata && idxM >= 0 && baseM > 0) {
+    for (let i = idxM + 1; i < linhasGrade.length; i++) {
+      const rowF = linhasGrade[i];
+      window._ajusteGrade[gk][rowF.anomes] = Math.round(V * (rowF.qtdProj / baseM));
+    }
+  }
+
+  doRenderGradeTab();
+  const { forn, marca } = window._exportData;
+  const descGrade = (window._currentGradeCtx && window._currentGradeCtx.descGrade) || '';
+  showHistGrade(familia, cor, grade, descGrade, forn, marca);
+  toast(cascata
+    ? `Grade recalculada a partir de ${anomes.substring(4,6)}/${anomes.substring(0,4)} — meses seguintes mantêm a curva.`
+    : `Grade ajustada para ${anomes.substring(4,6)}/${anomes.substring(0,4)}.`, 'success');
+}
+
+function liberarAjusteGrade(familia, cor, grade, anomes) {
+  const gk = familia + '|||' + cor + '|||' + String(grade);
+  if (window._ajusteGrade && window._ajusteGrade[gk]) {
+    delete window._ajusteGrade[gk][anomes];
+    if (Object.keys(window._ajusteGrade[gk]).length === 0) delete window._ajusteGrade[gk];
+  }
+  doRenderGradeTab();
+  const { forn, marca } = window._exportData;
+  const descGrade = (window._currentGradeCtx && window._currentGradeCtx.descGrade) || '';
+  showHistGrade(familia, cor, grade, descGrade, forn, marca);
+  toast('Ajuste da grade removido.', 'success');
+}
+
 // ── AJUSTE MANUAL DA PROJEÇÃO ─────────────────────────────────
 function aplicarAjusteManual(familia, cor, anomes) {
   if (!window._exportData) return;
@@ -5230,6 +5410,49 @@ function aplicarAjusteManual(familia, cor, anomes) {
   showHist(familia, cor, forn, marca);
 
   toast(`Projeção de ${familia} · ${cor} para ${anomes.substring(4,6)}/${anomes.substring(0,4)} ajustada para ${linha.qtdProj.toLocaleString('pt-BR')} CX e travada.`, 'success');
+}
+
+// Ajuste com CASCATA: fixa o mês editado e recalcula os meses SEGUINTES
+// mantendo a forma da curva atual (proporcional), ancorada no novo valor.
+function aplicarAjusteCascata(familia, cor, anomes) {
+  if (!window._exportData) return;
+  const inputEl = document.getElementById(`ajusteManual-${anomes}`);
+  if (!inputEl) return;
+  const V = parseFloat(inputEl.value);
+  if (isNaN(V) || V < 0) { toast('Informe um valor válido em CX.', 'error'); return; }
+
+  const allRows = window._exportData.allRows;
+  const linhas = allRows
+    .filter(r => r.nome_familia === familia && r.desc_cor === cor)
+    .sort((a, b) => a.anomes.localeCompare(b.anomes));
+  const idxM = linhas.findIndex(r => r.anomes === anomes);
+  if (idxM < 0) return;
+
+  const rowM  = linhas[idxM];
+  const baseM = rowM.qtdProj || 0;         // valor atual do mês âncora (a curva)
+  const sazM  = rowM.indiceSazonal || 0;
+
+  rowM.qtdProj = Math.round(V);
+  rowM._ajusteManual = true;
+
+  for (let i = idxM + 1; i < linhas.length; i++) {
+    const rowF = linhas[i];
+    let novo;
+    if (baseM > 0) {
+      novo = Math.round(V * (rowF.qtdProj / baseM));       // mantém a curva visível
+    } else if (sazM > 0 && rowF.indiceSazonal) {
+      novo = Math.round(V * (rowF.indiceSazonal / sazM));  // fallback: sazonalidade
+    } else {
+      continue;
+    }
+    rowF.qtdProj = novo;
+    rowF._ajusteManual = true;
+  }
+
+  recalcularComMesesIgnorados();
+  const { forn, marca } = window._exportData;
+  showHist(familia, cor, forn, marca);
+  toast(`Projeção recalculada a partir de ${anomes.substring(4,6)}/${anomes.substring(0,4)} — meses seguintes mantêm a curva.`, 'success');
 }
 
 function liberarAjusteManual(familia, cor, anomes) {
@@ -5493,6 +5716,13 @@ function capturarAjustes() {
     const set = map[k];
     if (set && set.size) ignorados[k] = [...set];
   });
+  // Exclusões por GRADE
+  const ignoradosGrade = {};
+  const mapG = window._mesesIgnoradosByGrade || {};
+  Object.keys(mapG).forEach(k => {
+    const set = mapG[k];
+    if (set && set.size) ignoradosGrade[k] = [...set];
+  });
   const travas = [];
   const allRows = (window._exportData && window._exportData.allRows) || [];
   allRows.forEach(r => {
@@ -5501,7 +5731,9 @@ function capturarAjustes() {
     }
   });
   const cobertura = document.getElementById('coberturaPlanejada')?.value || '2';
-  return { ignorados, travas, cobertura };
+  // Ajustes manuais por grade (valor + cascata)
+  const ajusteGrade = window._ajusteGrade ? JSON.parse(JSON.stringify(window._ajusteGrade)) : {};
+  return { ignorados, ignoradosGrade, travas, cobertura, ajusteGrade };
 }
 
 // Reaplica os ajustes após o recálculo (calcularTodos)
@@ -5512,6 +5744,13 @@ function aplicarAjustes(aj) {
   Object.keys(aj.ignorados || {}).forEach(k => {
     window._mesesIgnoradosByProd[k] = new Set(aj.ignorados[k] || []);
   });
+  // Exclusões por GRADE
+  window._mesesIgnoradosByGrade = window._mesesIgnoradosByGrade || {};
+  Object.keys(aj.ignoradosGrade || {}).forEach(k => {
+    window._mesesIgnoradosByGrade[k] = new Set(aj.ignoradosGrade[k] || []);
+  });
+  // Ajustes manuais por grade (valor + cascata)
+  window._ajusteGrade = aj.ajusteGrade ? JSON.parse(JSON.stringify(aj.ajusteGrade)) : {};
   // Travas manuais de projeção
   const allRows = window._exportData.allRows || [];
   (aj.travas || []).forEach(t => {
@@ -5523,6 +5762,8 @@ function aplicarAjustes(aj) {
   if (cob && aj.cobertura != null) cob.value = aj.cobertura;
   // Recalcula respeitando exclusões + travas e re-renderiza as tabelas
   if (typeof recalcularComMesesIgnorados === 'function') recalcularComMesesIgnorados();
+  // Re-renderiza a tabela de grades para refletir exclusões por grade
+  if (typeof renderGradeTab === 'function') renderGradeTab();
 }
 
 async function abrirCenario() {

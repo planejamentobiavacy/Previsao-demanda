@@ -2566,6 +2566,9 @@ function calcularTodos() {
     allRows.push(...rows);
   }
 
+  // Limita o 1º mês projetado a 70% do último estoque (restrição de oferta)
+  aplicarLimiteEstoquePrimeiroMes(allRows);
+
   renderResultsMulti(allRows, { forn, marca, meses: rows_mes });
   goStep(3);
   switchTab('grade');
@@ -2762,6 +2765,40 @@ function getEstoqueAtual(familia, cor) {
   let total = 0;
   grades.forEach(g => { total += stkByLoteMonth[g + '|' + _ultimoMesStkCache] || 0; });
   return Math.round(total);
+}
+
+// Retorna o mês seguinte (formato AAAAMM) a um dado AAAAMM
+function _proxMes(anomes) {
+  let y = parseInt(anomes.substring(0,4));
+  let m = parseInt(anomes.substring(4,6));
+  m++; if (m > 12) { m = 1; y++; }
+  return String(y).padStart(4,'0') + String(m).padStart(2,'0');
+}
+
+// REGRA DE NEGÓCIO: no primeiro mês projetado logo após o último dado de
+// estoque, a projeção é calculada normalmente, mas limitada a no máximo
+// 70% do último estoque do produto (restrição de oferta imediata).
+// Só limita produtos que TÊM estoque (>0). Não redistribui: o total do
+// mês pode ficar abaixo da venda projetada — é uma restrição real.
+function aplicarLimiteEstoquePrimeiroMes(allRows) {
+  if (!_gradesCache) buildGradesCache();
+  if (!_ultimoMesStkCache) return;                 // sem base de estoque → sem limite
+  const primeiroMes = _proxMes(_ultimoMesStkCache);
+  allRows.forEach(r => {
+    if (r.anomes !== primeiroMes) return;
+    if (r._ajusteManual) return;                   // respeita travas manuais do usuário
+    const estoque = getEstoqueAtual(r.nome_familia, r.desc_cor);
+    if (estoque <= 0) { r._limitadoEstoque = false; return; }
+    const limite = Math.round(estoque * 0.70);
+    if (r.qtdProj > limite) {
+      r._limitadoEstoque   = true;
+      r._qtdProjSemLimite  = r.qtdProj;
+      r._estoqueLimite     = estoque;
+      r.qtdProj            = limite;
+    } else {
+      r._limitadoEstoque = false;
+    }
+  });
 }
 
 function renderCompraTab() {
@@ -4447,12 +4484,14 @@ function showHist(familia, cor, forn, marca) {
 
   // Projeções calculadas para esta família/cor (por mês projetado)
   const projMap = {};
+  const limitadoMap = {};  // meses limitados a 70% do estoque → { valorOriginal, estoque }
   if (window._exportData?.allRows) {
     window._exportData.allRows
       .filter(r => r.nome_familia === familia && r.desc_cor === cor)
       .forEach(r => {
         // Cada linha já é única por nome_familia+desc_cor+anomes — não acumula
         projMap[r.anomes] = r.qtdProj;
+        if (r._limitadoEstoque) limitadoMap[r.anomes] = { orig: r._qtdProjSemLimite, estoque: r._estoqueLimite };
       });
   }
 
@@ -4655,6 +4694,9 @@ function showHist(familia, cor, forn, marca) {
         <text x="${cx}" y="${yClick-19}" text-anchor="middle" font-size="9" fill="#fff" font-weight="800" font-family="Barlow,sans-serif">IGNORADO</text>` : ''}
       ${(lbl && !isIgnorado) ? `<rect x="${x+2}" y="${y-16}" width="${barW-4}" height="14" fill="${col}" rx="3" opacity="0.15"/>
         <text x="${cx}" y="${y-5}" text-anchor="middle" font-size="9" fill="${col}" font-weight="800" font-family="Barlow,sans-serif">${lbl}</text>` : ''}
+      ${(isProj && limitadoMap[p]) ? `<rect x="${x+barW/2-40}" y="${y-32}" width="80" height="14" fill="#fef3c7" stroke="#d97706" stroke-width="1" rx="3"/>
+        <text x="${cx}" y="${y-22}" text-anchor="middle" font-size="8" fill="#92400e" font-weight="800" font-family="Barlow,sans-serif">🔒 limite estoque</text>
+        <title>Projeção limitada a 70% do estoque (${limitadoMap[p].estoque.toLocaleString('pt-BR')} CX). Sem o limite seria ${limitadoMap[p].orig.toLocaleString('pt-BR')} CX.</title>` : ''}
       ${isIgnorado ? `<rect x="${x+2}" y="${y-16}" width="${barW-4}" height="14" fill="#dc2626" rx="3" opacity="0.9"/>
         <text x="${cx}" y="${y-5}" text-anchor="middle" font-size="9" fill="#fff" font-weight="800" font-family="Barlow,sans-serif">IGNORADO</text>` : ''}
       <text x="${cx}" y="${y-(lbl||isIgnorado?22:6)}" text-anchor="middle" font-size="10" fill="${isIgnorado?'#94a3b8':'#1e293b'}" font-weight="700" font-family="Barlow,sans-serif" text-decoration="${isIgnorado?'line-through':'none'}">${v.toLocaleString('pt-BR')}</text>
@@ -5306,6 +5348,9 @@ function recalcularComMesesIgnorados() {
       maior.qtdProj += diff;
     }
   });
+
+  // Reaplica o limite de 70% do estoque no 1º mês projetado
+  aplicarLimiteEstoquePrimeiroMes(allRows);
 
   // Re-renderiza a tabela de resultados
   if (window._exportData) {

@@ -2775,21 +2775,36 @@ function _proxMes(anomes) {
   return String(y).padStart(4,'0') + String(m).padStart(2,'0');
 }
 
-// REGRA DE NEGÓCIO: no primeiro mês projetado logo após o último dado de
-// estoque, a projeção é calculada normalmente, mas limitada a no máximo
-// 70% do último estoque do produto (restrição de oferta imediata).
-// Só limita produtos que TÊM estoque (>0). Não redistribui: o total do
-// mês pode ficar abaixo da venda projetada — é uma restrição real.
+// REGRA DE NEGÓCIO: no PRIMEIRO mês projetado (imediatamente após o fim
+// dos dados), a demanda é restringida pela oferta disponível:
+//   • estoque > 0  → projeção limitada a no máximo 70% do último estoque;
+//   • estoque = 0  → projeção zerada (a demanda só volta a ser calculada
+//                    no mês seguinte).
+// Não redistribui (é restrição real de oferta) e respeita travas manuais.
+// Só se aplica quando há base de estoque carregada.
 function aplicarLimiteEstoquePrimeiroMes(allRows) {
   if (!_gradesCache) buildGradesCache();
-  if (!_ultimoMesStkCache) return;                 // sem base de estoque → sem limite
-  const primeiroMes = _proxMes(_ultimoMesStkCache);
+  if (!_ultimoMesStkCache) return;                 // sem base de estoque → sem regra
+  if (!allRows || !allRows.length) return;
+  // Primeiro mês projetado = menor anomes entre as linhas projetadas
+  let primeiroMes = null;
+  allRows.forEach(r => { if (!primeiroMes || r.anomes < primeiroMes) primeiroMes = r.anomes; });
+  if (!primeiroMes) return;
   allRows.forEach(r => {
     if (r.anomes !== primeiroMes) return;
-    if (r._ajusteManual) return;                   // respeita travas manuais do usuário
+    if (r._ajusteManual) return;                   // respeita travas manuais
     const estoque = getEstoqueAtual(r.nome_familia, r.desc_cor);
-    if (estoque <= 0) { r._limitadoEstoque = false; return; }
+    if (estoque <= 0) {
+      // Sem estoque → primeiro mês zerado; demanda só a partir do mês seguinte
+      r._zeradoEstoque    = true;
+      r._limitadoEstoque  = false;
+      r._qtdProjSemLimite = r.qtdProj;
+      r._estoqueLimite    = 0;
+      r.qtdProj           = 0;
+      return;
+    }
     const limite = Math.round(estoque * 0.70);
+    r._zeradoEstoque = false;
     if (r.qtdProj > limite) {
       r._limitadoEstoque   = true;
       r._qtdProjSemLimite  = r.qtdProj;
@@ -4491,7 +4506,8 @@ function showHist(familia, cor, forn, marca) {
       .forEach(r => {
         // Cada linha já é única por nome_familia+desc_cor+anomes — não acumula
         projMap[r.anomes] = r.qtdProj;
-        if (r._limitadoEstoque) limitadoMap[r.anomes] = { orig: r._qtdProjSemLimite, estoque: r._estoqueLimite };
+        if (r._limitadoEstoque) limitadoMap[r.anomes] = { orig: r._qtdProjSemLimite, estoque: r._estoqueLimite, tipo: 'limite' };
+        else if (r._zeradoEstoque) limitadoMap[r.anomes] = { orig: r._qtdProjSemLimite, estoque: 0, tipo: 'zero' };
       });
   }
 
@@ -4694,9 +4710,17 @@ function showHist(familia, cor, forn, marca) {
         <text x="${cx}" y="${yClick-19}" text-anchor="middle" font-size="9" fill="#fff" font-weight="800" font-family="Barlow,sans-serif">IGNORADO</text>` : ''}
       ${(lbl && !isIgnorado) ? `<rect x="${x+2}" y="${y-16}" width="${barW-4}" height="14" fill="${col}" rx="3" opacity="0.15"/>
         <text x="${cx}" y="${y-5}" text-anchor="middle" font-size="9" fill="${col}" font-weight="800" font-family="Barlow,sans-serif">${lbl}</text>` : ''}
-      ${(isProj && limitadoMap[p]) ? `<rect x="${x+barW/2-40}" y="${y-32}" width="80" height="14" fill="#fef3c7" stroke="#d97706" stroke-width="1" rx="3"/>
-        <text x="${cx}" y="${y-22}" text-anchor="middle" font-size="8" fill="#92400e" font-weight="800" font-family="Barlow,sans-serif">🔒 limite estoque</text>
-        <title>Projeção limitada a 70% do estoque (${limitadoMap[p].estoque.toLocaleString('pt-BR')} CX). Sem o limite seria ${limitadoMap[p].orig.toLocaleString('pt-BR')} CX.</title>` : ''}
+      ${(isProj && limitadoMap[p]) ? (() => {
+        const info = limitadoMap[p];
+        const txt  = info.tipo === 'zero' ? '🔒 sem estoque' : '🔒 limite estoque';
+        const tip  = info.tipo === 'zero'
+          ? `Primeiro mês projetado zerado por falta de estoque. Sem a regra seria ${(info.orig||0).toLocaleString('pt-BR')} CX; a demanda volta no mês seguinte.`
+          : `Projeção limitada a 70% do estoque (${(info.estoque||0).toLocaleString('pt-BR')} CX). Sem o limite seria ${(info.orig||0).toLocaleString('pt-BR')} CX.`;
+        const barW2 = 84;
+        return `<rect x="${cx-barW2/2}" y="${y-32}" width="${barW2}" height="14" fill="#fef3c7" stroke="#d97706" stroke-width="1" rx="3"/>
+          <text x="${cx}" y="${y-22}" text-anchor="middle" font-size="8" fill="#92400e" font-weight="800" font-family="Barlow,sans-serif">${txt}</text>
+          <title>${tip}</title>`;
+      })() : ''}
       ${isIgnorado ? `<rect x="${x+2}" y="${y-16}" width="${barW-4}" height="14" fill="#dc2626" rx="3" opacity="0.9"/>
         <text x="${cx}" y="${y-5}" text-anchor="middle" font-size="9" fill="#fff" font-weight="800" font-family="Barlow,sans-serif">IGNORADO</text>` : ''}
       <text x="${cx}" y="${y-(lbl||isIgnorado?22:6)}" text-anchor="middle" font-size="10" fill="${isIgnorado?'#94a3b8':'#1e293b'}" font-weight="700" font-family="Barlow,sans-serif" text-decoration="${isIgnorado?'line-through':'none'}">${v.toLocaleString('pt-BR')}</text>

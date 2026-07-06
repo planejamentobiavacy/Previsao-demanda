@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v31 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v32 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -3267,6 +3267,7 @@ function renderCompraTab() {
 function doRenderCompraTab() {
   if (!window._exportData) return;
   buildGradesCache();  // lazy — só constrói uma vez
+  if (!window._colecaoPorProduto && typeof _buildColecaoPorProduto === 'function') _buildColecaoPorProduto();
   const { allRows, forn, marca, meses } = window._exportData;
   // Cobertura padrão dos meses ainda não ajustados manualmente (2 meses)
   if (window._coberturaDefaultCompra === undefined) window._coberturaDefaultCompra = 2;
@@ -3548,6 +3549,7 @@ function doRenderCompraTab() {
     <th style="width:32px;"></th>
     <th>Nome Família</th>
     <th>Desc Cor</th>
+    <th>Coleção</th>
     <th class="right">Estoque Atual</th>
     ${mesesOrdenados.map((am, idx) => `<th class="right" style="background:#1e3a8a;color:#fff;padding:6px 8px;">
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
@@ -3567,7 +3569,7 @@ function doRenderCompraTab() {
 
   // Body: linha por produto (com expansão de grades)
   const tbody = document.getElementById('compraBody');
-  const colSpanTotal = 5 + mesesOrdenados.length; // expand + familia + cor + estoque + meses + total + hist = 6+n; usamos para grade rows sem expand col
+  const colSpanTotal = 6 + mesesOrdenados.length; // expand + familia + cor + coleção + estoque + meses + total + hist
 
   const buildCellsMeses = (mesesObj, compact = false) => {
     return mesesOrdenados.map(am => {
@@ -3599,6 +3601,7 @@ function doRenderCompraTab() {
       <td style="text-align:center;font-size:14px;color:${hasGrades ? '#1d4ed8' : '#cbd5e1'};font-weight:800;" id="${opKey}-icon">${hasGrades ? '▶' : '·'}</td>
       <td>${r.nome_familia}</td>
       <td>${r.desc_cor}</td>
+      <td style="font-size:12px;color:#64748b;">${(window._colecaoPorProduto && window._colecaoPorProduto[r.nome_familia + '|||' + r.desc_cor]) || '—'}</td>
       <td class="right" style="color:${corEstoque};font-weight:700;">${fmtInt(r.estoqueInicial)}</td>
       ${cellsMeses}
       <td class="right" style="background:#fff7ed;"><span class="badge badge-success" style="background:${r.totalCompra===0?'#e2e8f0':'#fee2e2'};color:${r.totalCompra===0?'#94a3b8':'#dc2626'};">${fmtInt(r.totalCompra)}</span></td>
@@ -3611,7 +3614,7 @@ function doRenderCompraTab() {
           const corEstG = gr.estoqueInicial === 0 ? '#dc2626' : '#059669';
           return `<tr class="compra-grade-row compra-grade-row-${opKey}" style="display:none;background:#fafbfc;">
             <td></td>
-            <td colspan="2" style="padding-left:36px;font-size:12px;color:#475569;">
+            <td colspan="3" style="padding-left:36px;font-size:12px;color:#475569;">
               ${gr.desc_grade ? gr.desc_grade : '<span style="color:#94a3b8;font-style:italic;">(sem descrição) ' + gr.grade + '</span>'}
             </td>
             <td class="right" style="color:${corEstG};font-weight:600;font-size:12px;">${fmtInt(gr.estoqueInicial)}</td>

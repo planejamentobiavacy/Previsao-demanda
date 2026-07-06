@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v20 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v22 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -3619,12 +3619,9 @@ function exportCompraCSV() {
   });
 
   const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `projecao_compra_${forn}_${marca}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  if (_baixarArquivo(blob, `projecao_compra_${forn}_${marca}.csv`)) {
+    toast('CSV de compra exportado!', 'success');
+  }
 }
 
 // ── PROJEÇÃO POR GRADE ───────────────────────────────────────
@@ -5010,6 +5007,28 @@ function toggleGradeGrupo(opKey) {
   if (icon) icon.textContent = isHidden ? '▼' : '▶';
 }
 
+// Download robusto: anexa o link ao DOM antes de clicar (senão alguns navegadores ignoram)
+function _baixarArquivo(blob, filename) {
+  try {
+    const nome = String(filename).replace(/[\/\\:*?"<>|]+/g, '_');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nome;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return true;
+  } catch (e) {
+    console.error('download falhou:', e);
+    toast('Falha ao baixar o arquivo: ' + (e.message || e), 'error');
+    return false;
+  }
+}
+
 function exportGradeCSV() {
   if (!window._gradeData) return;
   const { forn, marca } = window._exportData;
@@ -5027,13 +5046,10 @@ function exportGradeCSV() {
       l.qtdProj * 12
     ].join(';'));
   });
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `projecao_grade_${forn}_${marca}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  if (_baixarArquivo(blob, `projecao_grade_${forn}_${marca}.csv`)) {
+    toast('CSV de grade exportado!', 'success');
+  }
 }
 
 // ── EXPORT CSV ───────────────────────────────────────────────
@@ -5055,11 +5071,9 @@ function exportCSV() {
     ].join(';'));
   });
   const blob = new Blob(['\uFEFF'+lines.join('\n')], {type:'text/csv;charset=utf-8;'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `previsao_demanda_${forn}_${marca}.csv`;
-  a.click();
-  toast('Exportado com sucesso!', 'success');
+  if (_baixarArquivo(blob, `previsao_demanda_${forn}_${marca}.csv`)) {
+    toast('Exportado com sucesso!', 'success');
+  }
 }
 
 // ── HISTÓRICO MODAL ───────────────────────────────────────────
@@ -6457,6 +6471,25 @@ async function carregarSortimentoAtivo() {
     if (!data) return;
     window._opcoesDesativadas = new Set(data.opcoes || []);
     window._gradesDesativadas = new Set(data.grades || []);
+    // Reconstrói o estado do seletor de coleções: uma coleção fica "oculta"
+    // quando TODOS os produtos dela estão desativados
+    try {
+      if (typeof _buildColecaoPorProduto === 'function') {
+        _buildColecaoPorProduto();
+        const porCol = {};
+        Object.keys(window._colecaoPorProduto || {}).forEach(pk => {
+          const c = window._colecaoPorProduto[pk];
+          (porCol[c] = porCol[c] || []).push(pk);
+        });
+        window._colecoesDesativadas = new Set();
+        Object.keys(porCol).forEach(c => {
+          if (porCol[c].length && porCol[c].every(pk => window._opcoesDesativadas.has(pk))) {
+            window._colecoesDesativadas.add(c);
+          }
+        });
+        if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
+      }
+    } catch (e) { console.error(e); }
     if ((data.opcoes && data.opcoes.length) || (data.grades && data.grades.length)) {
       aplicarDescontinuadosERecalcular();
     }

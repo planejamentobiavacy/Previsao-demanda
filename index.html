@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v19 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v20 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1220,6 +1220,9 @@
         <div style="color:rgba(255,255,255,0.65);font-size:11px;margin-top:2px;" id="histSubtitle"></div>
       </div>
       <div style="display:flex;gap:8px;">
+        <button onclick="toggleDescontinuarAtual()" id="btnDescontinuarProd" style="background:rgba(255,255,255,0.15);border:none;color:#fff;height:30px;padding:0 14px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700;font-family:'Barlow',sans-serif;display:flex;align-items:center;gap:5px;letter-spacing:0.5px;">
+          ⛔ Descontinuar
+        </button>
         <button onclick="toggleInfo()" id="btnInfo" style="background:rgba(255,255,255,0.15);border:none;color:#fff;height:30px;padding:0 14px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700;font-family:'Barlow',sans-serif;display:flex;align-items:center;gap:5px;letter-spacing:0.5px;">
           ℹ️ Como foi calculado
         </button>
@@ -4457,6 +4460,10 @@ function showHistGrade(familia, cor, grade, descGrade, forn, marca) {
   window._gradeChartHTML = chartHTML;
   window._histInfoVisible = false;
 
+  // Botão "Descontinuar" é do nível de PRODUTO — esconde no gráfico de grade
+  const bd = document.getElementById('btnDescontinuarProd');
+  if (bd) bd.style.display = 'none';
+
   document.getElementById('histModal').style.display = 'block';
 }
 
@@ -5484,6 +5491,37 @@ function showHist(familia, cor, forn, marca) {
   document.getElementById('btnInfo').onclick = toggleInfo;
   // Esconde botão de info se não houver projeção calculada
   document.getElementById('btnInfo').style.display = window._currentHistRow ? 'flex' : 'none';
+  atualizarBotaoDescontinuar();
+}
+
+// Marca/desmarca o produto atual (do modal) como descontinuado
+function toggleDescontinuarAtual() {
+  const ctx = window._currentProductCtx;
+  if (!ctx) return;
+  const key = ctx.familia + '|||' + ctx.cor;
+  const estaDesat = window._opcoesDesativadas && window._opcoesDesativadas.has(key);
+  // Se está desativado → reativa (true); se ativo → desativa (false)
+  toggleOpcaoAtiva(ctx.familia, ctx.cor, estaDesat);
+  atualizarBotaoDescontinuar();
+  toast(estaDesat
+    ? `${ctx.familia} · ${ctx.cor} reativado.`
+    : `${ctx.familia} · ${ctx.cor} descontinuado — não será projetado (volume redistribuído).`, 'success');
+}
+
+function atualizarBotaoDescontinuar() {
+  const btn = document.getElementById('btnDescontinuarProd');
+  const ctx = window._currentProductCtx;
+  if (!btn || !ctx) return;
+  btn.style.display = 'flex';
+  const key = ctx.familia + '|||' + ctx.cor;
+  const estaDesat = window._opcoesDesativadas && window._opcoesDesativadas.has(key);
+  if (estaDesat) {
+    btn.innerHTML = '✅ Reativar produto';
+    btn.style.background = 'rgba(34,197,94,0.35)';
+  } else {
+    btn.innerHTML = '⛔ Descontinuar';
+    btn.style.background = 'rgba(255,255,255,0.15)';
+  }
 }
 
 function selecionarInfoMes(anomes) {

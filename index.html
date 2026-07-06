@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v23 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v24 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1239,7 +1239,7 @@
 
 <!-- MODAL PRODUTOS DESCONTINUADOS -->
 <div id="descontinuadosModal" style="display:none;position:fixed;inset:0;z-index:9100;background:rgba(15,30,61,0.55);backdrop-filter:blur(3px);" onclick="if(event.target===this)fecharDescontinuados()">
-  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;width:min(920px,96vw);max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;width:min(1300px,97vw);max-height:88vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
     <div style="background:var(--accent);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
       <div>
         <div style="color:#fff;font-weight:800;font-size:15px;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.5px;">⛔ Produtos descontinuados</div>
@@ -1247,7 +1247,7 @@
       </div>
       <button onclick="fecharDescontinuados()" style="background:rgba(255,255,255,0.15);border:none;color:#fff;width:30px;height:30px;border-radius:5px;cursor:pointer;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;">×</button>
     </div>
-    <div style="overflow-y:auto;padding:20px 24px;" id="descontinuadosBody"></div>
+    <div style="overflow:auto;padding:20px 24px;" id="descontinuadosBody"></div>
   </div>
 </div>
 
@@ -4762,6 +4762,22 @@ function _vendaHistPorProduto() {
   return map;
 }
 
+// Estatísticas por produto: total CX e último mês com venda
+function _statsPorProduto() {
+  const map = {};
+  const forn  = window._exportData && window._exportData.forn;
+  const marca = window._exportData && window._exportData.marca;
+  (rawData || []).forEach(r => {
+    if (forn  && r.fornecedor !== forn)  return;
+    if (marca && r.marca      !== marca) return;
+    const k = r.nome_familia + '|||' + r.desc_cor;
+    if (!map[k]) map[k] = { cx: 0, ultimoMes: '' };
+    map[k].cx += (r.cx || 0);
+    if ((r.cx || 0) > 0 && (r.ano_mes || '') > map[k].ultimoMes) map[k].ultimoMes = r.ano_mes || '';
+  });
+  return map;
+}
+
 function atualizarBotaoDescontinuados() {
   const btn = document.getElementById('btnDescontinuados');
   if (!btn) return;
@@ -4785,15 +4801,18 @@ function fecharDescontinuados() {
 
 function renderDescontinuados() {
   if (!window._colecaoPorProduto) { try { _buildColecaoPorProduto(); } catch(e){} }
-  const vendaHist = _vendaHistPorProduto();
+  const stats = _statsPorProduto();
   const desat = [...(window._opcoesDesativadas || [])];
+  const fmtAM = m => (m && m.length === 6) ? m.substring(4,6)+'/'+m.substring(0,4) : '—';
   const itens = desat.map(k => {
     const p = k.split('|||');
+    const st = stats[k] || { cx:0, ultimoMes:'' };
     return {
       key: k,
       familia: p[0] || '',
       cor: p[1] || '',
-      venda: vendaHist[k] || 0,
+      venda: st.cx || 0,
+      ultimoMes: st.ultimoMes || '',
       colecao: (window._colecaoPorProduto && window._colecaoPorProduto[k]) || '—'
     };
   }).sort((a, b) => b.venda - a.venda);   // maior venda histórica primeiro
@@ -4813,14 +4832,17 @@ function renderDescontinuados() {
     '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">'
     + '<button onclick="reativarTodosDescontinuados()" style="background:#ecfdf5;border:1px solid #a7f3d0;color:#047857;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">↩ Reativar todos</button>'
     + '</div>'
-    + '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;">'
+    + '<colgroup><col style="width:36px;"><col><col style="width:110px;"><col style="width:95px;"><col style="width:130px;"><col style="width:110px;"></colgroup>'
     + '<thead><tr style="text-align:left;color:#64748b;font-size:11px;letter-spacing:0.5px;border-bottom:2px solid #e5e7eb;">'
-    + '<th style="padding:8px 10px;width:34px;">#</th><th style="padding:8px 10px;">Produto (família · cor)</th>'
-    + '<th style="padding:8px 10px;">Coleção</th><th style="padding:8px 10px;text-align:right;">Venda hist. (CX)</th><th style="padding:8px 10px;"></th></tr></thead><tbody>'
+    + '<th style="padding:8px 10px;">#</th><th style="padding:8px 10px;">Produto (família · cor)</th>'
+    + '<th style="padding:8px 10px;">Coleção</th><th style="padding:8px 10px;">Últ. mês</th>'
+    + '<th style="padding:8px 10px;text-align:right;">Venda hist. (CX)</th><th style="padding:8px 10px;"></th></tr></thead><tbody>'
     + itens.map((it, i) => `<tr style="border-bottom:1px solid #f1f5f9;">
         <td style="padding:8px 10px;color:#94a3b8;">${i+1}</td>
-        <td style="padding:8px 10px;"><strong>${it.familia}</strong> <span style="color:#64748b;">· ${it.cor}</span></td>
-        <td style="padding:8px 10px;color:#64748b;font-size:12px;">${it.colecao}</td>
+        <td style="padding:8px 10px;word-break:break-word;"><strong>${it.familia}</strong> <span style="color:#64748b;">· ${it.cor}</span></td>
+        <td style="padding:8px 10px;color:#64748b;font-size:12px;word-break:break-word;">${it.colecao}</td>
+        <td style="padding:8px 10px;color:#64748b;font-size:12px;">${fmtAM(it.ultimoMes)}</td>
         <td style="padding:8px 10px;text-align:right;font-weight:700;color:#1e293b;">${fmtInt(it.venda)}</td>
         <td style="padding:8px 10px;text-align:right;"><button onclick="reativarDescontinuado('${it.familia.replace(/'/g,"\\'")}','${it.cor.replace(/'/g,"\\'")}')" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">↩ Reativar</button></td>
       </tr>`).join('')

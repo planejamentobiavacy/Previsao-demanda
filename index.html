@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v24 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v25 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -4042,6 +4042,8 @@ function doRenderGradeTab() {
   tbody.innerHTML = gruposArr.map((g, idx) => {
     const opKey = `grupo-${idx}`;
     const opKeyClean = g.nome_familia + '|||' + g.desc_cor;
+    // Produtos de coleção oculta não aparecem na lista (ficam fora da projeção)
+    if (typeof _colecaoExcluida === 'function' && _colecaoExcluida(opKeyClean)) return '';
     const isOpAtiva = !window._opcoesDesativadas || !window._opcoesDesativadas.has(opKeyClean);
     const headerRow = `<tr class="grade-grupo-header ${!isOpAtiva ? 'op-desativada' : ''}" onclick="toggleGradeGrupo('${opKey}')" style="cursor:pointer;background:${!isOpAtiva ? '#fef2f2' : '#f8fafc'};" data-search="${(g.nome_familia + ' ' + g.desc_cor).toLowerCase().replace(/"/g,'&quot;')}" data-op-key="${opKeyClean.replace(/"/g,'&quot;')}">
       <td style="text-align:center;" onclick="event.stopPropagation();">
@@ -4702,17 +4704,18 @@ function renderColecaoFilter() {
     + '</div>';
 }
 
+// Um produto está excluído por coleção quando sua coleção está oculta
+function _colecaoExcluida(opKey) {
+  if (!window._colecoesDesativadas || !window._colecoesDesativadas.size) return false;
+  const col = window._colecaoPorProduto && window._colecaoPorProduto[opKey];
+  return col ? window._colecoesDesativadas.has(col) : false;
+}
+
 function toggleColecao(nome, ativa) {
   if (!window._colecaoPorProduto) _buildColecaoPorProduto();
   if (ativa) window._colecoesDesativadas.delete(nome);
   else       window._colecoesDesativadas.add(nome);
-  // Aplica sobre os produtos daquela coleção usando o mesmo mecanismo de desativados
-  Object.keys(window._colecaoPorProduto).forEach(prodKey => {
-    if (window._colecaoPorProduto[prodKey] === nome) {
-      if (ativa) window._opcoesDesativadas.delete(prodKey);
-      else       window._opcoesDesativadas.add(prodKey);
-    }
-  });
+  // NÃO mistura com os descontinuados manuais — a exclusão por coleção é separada
   aplicarDescontinuadosERecalcular();
   atualizarBotaoColecao();
 }
@@ -4722,12 +4725,6 @@ function marcarTodasColecoes(ativa) {
   cols.forEach(c => {
     if (ativa) window._colecoesDesativadas.delete(c.nome);
     else       window._colecoesDesativadas.add(c.nome);
-    Object.keys(window._colecaoPorProduto || {}).forEach(prodKey => {
-      if (window._colecaoPorProduto[prodKey] === c.nome) {
-        if (ativa) window._opcoesDesativadas.delete(prodKey);
-        else       window._opcoesDesativadas.add(prodKey);
-      }
-    });
   });
   aplicarDescontinuadosERecalcular();
   renderColecaoFilter();
@@ -4851,25 +4848,16 @@ function renderDescontinuados() {
 
 function reativarDescontinuado(familia, cor) {
   toggleOpcaoAtiva(familia, cor, true);   // true = reativa (remove de desativados)
-  // Se a coleção estava marcada como oculta, deixa de estar (pois um produto voltou)
-  if (window._colecaoPorProduto) {
-    const col = window._colecaoPorProduto[familia + '|||' + cor];
-    if (col && window._colecoesDesativadas) window._colecoesDesativadas.delete(col);
-  }
-  if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
   renderDescontinuados();
   toast(`${familia} · ${cor} reativado.`, 'success');
 }
 
 function reativarTodosDescontinuados() {
-  (window._opcoesDesativadas || new Set()).forEach(() => {});
-  window._opcoesDesativadas = new Set();
-  window._colecoesDesativadas = new Set();
+  window._opcoesDesativadas = new Set();   // só os descontinuados manuais (coleções ocultas ficam)
   aplicarDescontinuadosERecalcular();
-  if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
   if (typeof atualizarBotaoDescontinuados === 'function') atualizarBotaoDescontinuados();
   renderDescontinuados();
-  toast('Todos os produtos foram reativados.', 'success');
+  toast('Todos os produtos descontinuados foram reativados.', 'success');
 }
 
 
@@ -4900,6 +4888,8 @@ function toggleGradeAtiva(familia, cor, grade, ativa) {
 // Reaplica: zera qtdProj dos descontinuados, redistribui entre ativos proporcionalmente ao share
 function aplicarDescontinuadosERecalcular() {
   if (!window._exportData) return;
+  // Garante o mapa produto→coleção (para a exclusão por coleção funcionar)
+  if (!window._colecaoPorProduto && typeof _buildColecaoPorProduto === 'function') _buildColecaoPorProduto();
 
   // Salva estado de expansão dos grupos ANTES de re-renderizar (por família+cor)
   if (!window._expandidosGradePorProduto) window._expandidosGradePorProduto = new Set();
@@ -4925,15 +4915,17 @@ function aplicarDescontinuadosERecalcular() {
     linhasMes.forEach(r => {
       const opKey = r.nome_familia + '|||' + r.desc_cor;
       r._descontinuado = window._opcoesDesativadas.has(opKey);
+      r._colExcluido   = _colecaoExcluida(opKey);
+      r._foraProjecao  = r._descontinuado || r._colExcluido;
     });
 
-    // Ativos (não descontinuados, não travados, não com projeção ignorada)
-    const travados         = linhasMes.filter(r => r._ajusteManual === true && !r._descontinuado);
-    const descontinuados   = linhasMes.filter(r => r._descontinuado);
-    const naoTravadosLivres= linhasMes.filter(r => !r._ajusteManual && !r._descontinuado && !r.projecaoIgnorada);
+    // Ativos (não fora-de-projeção, não travados, não com projeção ignorada)
+    const travados         = linhasMes.filter(r => r._ajusteManual === true && !r._foraProjecao);
+    const foraProjecao     = linhasMes.filter(r => r._foraProjecao);
+    const naoTravadosLivres= linhasMes.filter(r => !r._ajusteManual && !r._foraProjecao && !r.projecaoIgnorada);
 
-    // Descontinuados: qtdProj = 0
-    descontinuados.forEach(r => { r.qtdProj = 0; r.partFinal = 0; });
+    // Descontinuados / coleção oculta: qtdProj = 0
+    foraProjecao.forEach(r => { r.qtdProj = 0; r.partFinal = 0; });
 
     const totalTravado = travados.reduce((s,r) => s + (r.qtdProj || 0), 0);
     const vendaRestante = Math.max(0, vendaT - totalTravado);
@@ -6589,7 +6581,11 @@ async function salvarSortimentoAtivo() {
   if (!_supaOk()) return;
   if (!window._exportData) { toast('Calcule a projeção primeiro.', 'error'); return; }
   const id = _sortimentoId();
-  const opcoes = [...(window._opcoesDesativadas || [])];
+  // Descontinuados manuais + coleções ocultas (codificadas com prefixo __COL__: no mesmo campo)
+  const opcoes = [
+    ...(window._opcoesDesativadas || []),
+    ...[...(window._colecoesDesativadas || [])].map(c => '__COL__:' + c)
+  ];
   const grades = [...(window._gradesDesativadas || [])];
   try {
     const { error } = await window.supabase.from('sortimento').upsert({
@@ -6610,28 +6606,18 @@ async function carregarSortimentoAtivo() {
       .from('sortimento').select('opcoes, grades').eq('id', id).maybeSingle();
     if (error) throw error;
     if (!data) return;
-    window._opcoesDesativadas = new Set(data.opcoes || []);
+    // Separa descontinuados manuais (opcoes) das coleções ocultas (prefixo __COL__:)
+    const todas = data.opcoes || [];
+    window._opcoesDesativadas  = new Set(todas.filter(x => !String(x).startsWith('__COL__:')));
+    window._colecoesDesativadas = new Set(
+      todas.filter(x => String(x).startsWith('__COL__:')).map(x => String(x).slice(8))
+    );
     window._gradesDesativadas = new Set(data.grades || []);
-    // Reconstrói o estado do seletor de coleções: uma coleção fica "oculta"
-    // quando TODOS os produtos dela estão desativados
     try {
-      if (typeof _buildColecaoPorProduto === 'function') {
-        _buildColecaoPorProduto();
-        const porCol = {};
-        Object.keys(window._colecaoPorProduto || {}).forEach(pk => {
-          const c = window._colecaoPorProduto[pk];
-          (porCol[c] = porCol[c] || []).push(pk);
-        });
-        window._colecoesDesativadas = new Set();
-        Object.keys(porCol).forEach(c => {
-          if (porCol[c].length && porCol[c].every(pk => window._opcoesDesativadas.has(pk))) {
-            window._colecoesDesativadas.add(c);
-          }
-        });
-        if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
-      }
+      if (typeof _buildColecaoPorProduto === 'function') _buildColecaoPorProduto();
+      if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
     } catch (e) { console.error(e); }
-    if ((data.opcoes && data.opcoes.length) || (data.grades && data.grades.length)) {
+    if (window._opcoesDesativadas.size || window._gradesDesativadas.size || window._colecoesDesativadas.size) {
       aplicarDescontinuadosERecalcular();
     }
   } catch (e) {

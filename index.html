@@ -980,7 +980,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v9 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v10 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1489,6 +1489,14 @@ async function gerarFerramenta() {
     }
     if (!teste.rawData || teste.rawData.length !== rawData.length) {
       throw new Error('Verificação dos dados embutidos falhou.');
+    }
+
+    // REDE DE SEGURANÇA: garante que o HTML de saída não perdeu funções essenciais
+    // (protege contra qualquer corrupção na montagem). Se faltar, não baixa.
+    const essenciais = ['function carregarDadosEmbedados', 'async function initAuth', 'function calcularTodos'];
+    const faltando = essenciais.filter(fn => !html.includes(fn));
+    if (faltando.length) {
+      throw new Error('HTML de saída ficou incompleto (faltam funções). Não foi baixado. Use o gerador v9.');
     }
 
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });

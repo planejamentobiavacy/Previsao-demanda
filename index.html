@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v27 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v30 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -3011,11 +3011,11 @@ function renderResultsMulti(allRows, { forn, marca, meses }) {
     const total  = rowsAm.reduce((s,r)=>s+r.qtdProj,0);
     const mes    = meses.find(m=>m.anomes===am);
     const mesConf = meses.find(m=>m.anomes===am);
-    const qtdPar  = mesConf?.qtdPares || 0;
+    const paresProj = total * 12;   // pares equivalentes à projeção real (1 CX = 12 pares)
     return `<div class="summary-card">
       <div class="sc-label">${am.substring(4,6)}/${am.substring(0,4)}</div>
       <div class="sc-val" style="color:var(--accent)">${total.toLocaleString('pt-BR')} <span style="font-size:14px">CX</span></div>
-      <div class="sc-sub">${qtdPar > 0 ? qtdPar.toLocaleString('pt-BR') + ' pares → ' : ''}${total.toLocaleString('pt-BR')} CX projetadas</div>
+      <div class="sc-sub">${paresProj > 0 ? paresProj.toLocaleString('pt-BR') + ' pares → ' : ''}${total.toLocaleString('pt-BR')} CX projetadas</div>
     </div>`;
   }).join('') + `
     <div class="summary-card" style="border-top-color:#7c3aed">
@@ -3101,6 +3101,9 @@ function switchTab(tab) {
   document.getElementById('tabCompra').classList.toggle('active', tab === 'compra');
   document.getElementById('tabPaneGrade').style.display   = tab === 'grade'   ? 'block' : 'none';
   document.getElementById('tabPaneCompra').style.display  = tab === 'compra'  ? 'block' : 'none';
+  // Os cartões de Projeção de Demanda (summaryRow) só fazem sentido na aba de demanda
+  const summaryRowEl = document.getElementById('summaryRow');
+  if (summaryRowEl) summaryRowEl.style.display = (tab === 'compra') ? 'none' : '';
   if (tab === 'compra') renderCompraTab();
   if (tab === 'grade')  renderGradeTab();
 }
@@ -3159,8 +3162,10 @@ function _proxMes(anomes) {
 //   • estoque > 0  → projeção limitada a no máximo 70% do último estoque;
 //   • estoque = 0  → projeção zerada (a demanda só volta a ser calculada
 //                    no mês seguinte).
-// Não redistribui (é restrição real de oferta) e respeita travas manuais.
-// Só se aplica quando há base de estoque carregada.
+// O volume cortado dos produtos restritos é REDISTRIBUÍDO pelos produtos
+// SEM restrição (com folga até o limite de 70%), na proporção do share,
+// para que o total do mês volte a bater a meta setada.
+// Respeita travas manuais. Só se aplica quando há base de estoque carregada.
 function aplicarLimiteEstoquePrimeiroMes(allRows) {
   if (!_gradesCache) buildGradesCache();
   if (!_ultimoMesStkCache) return;                 // sem base de estoque → sem regra
@@ -3169,30 +3174,73 @@ function aplicarLimiteEstoquePrimeiroMes(allRows) {
   let primeiroMes = null;
   allRows.forEach(r => { if (!primeiroMes || r.anomes < primeiroMes) primeiroMes = r.anomes; });
   if (!primeiroMes) return;
-  allRows.forEach(r => {
-    if (r.anomes !== primeiroMes) return;
+
+  const linhas = allRows.filter(r => r.anomes === primeiroMes);
+  // Alvo do mês = soma da projeção ANTES da trava (o total normalizado/setado)
+  const alvoMes = linhas.reduce((s, r) => s + (r.qtdProj || 0), 0);
+
+  let deficit = 0;               // volume cortado dos restritos, a redistribuir
+  const livres = [];             // produtos com estoque e folga (podem receber)
+
+  linhas.forEach(r => {
     if (r._ajusteManual) return;                   // respeita travas manuais
     const estoque = getEstoqueAtual(r.nome_familia, r.desc_cor);
+    r._qtdProjSemLimite = r.qtdProj;
+    r._estoqueLimite    = estoque;
     if (estoque <= 0) {
       // Sem estoque → primeiro mês zerado; demanda só a partir do mês seguinte
-      r._zeradoEstoque    = true;
-      r._limitadoEstoque  = false;
-      r._qtdProjSemLimite = r.qtdProj;
-      r._estoqueLimite    = 0;
-      r.qtdProj           = 0;
+      r._zeradoEstoque   = true;
+      r._limitadoEstoque = false;
+      r._limiteMax       = 0;
+      deficit += r.qtdProj;
+      r.qtdProj          = 0;
       return;
     }
     const limite = Math.round(estoque * 0.70);
     r._zeradoEstoque = false;
+    r._limiteMax     = limite;
     if (r.qtdProj > limite) {
-      r._limitadoEstoque   = true;
-      r._qtdProjSemLimite  = r.qtdProj;
-      r._estoqueLimite     = estoque;
-      r.qtdProj            = limite;
+      // Restrito: corta para 70% do estoque
+      r._limitadoEstoque = true;
+      deficit += (r.qtdProj - limite);
+      r.qtdProj          = limite;
     } else {
+      // Sem restrição: tem folga até o limite → elegível para receber
       r._limitadoEstoque = false;
+      const folga = limite - r.qtdProj;
+      if (folga > 0) livres.push({ r, folga });
     }
   });
+
+  // Redistribui o déficit pelos produtos livres, na proporção do share,
+  // sem estourar a folga de cada um (water-filling em algumas passadas)
+  if (deficit > 0.5 && livres.length) {
+    let restante = deficit;
+    for (let iter = 0; iter < 25 && restante > 0.5; iter++) {
+      const elegiveis = livres.filter(x => x.folga > 0.5);
+      if (!elegiveis.length) break;
+      const somaPeso = elegiveis.reduce((s, x) => s + (x.r.shareMedio || x.r.qtdProj || 0), 0);
+      if (somaPeso <= 0) break;
+      let distribuido = 0;
+      elegiveis.forEach(x => {
+        const peso = (x.r.shareMedio || x.r.qtdProj || 0) / somaPeso;
+        let add = restante * peso;
+        if (add > x.folga) add = x.folga;
+        x.r.qtdProj += add;
+        x.folga     -= add;
+        distribuido += add;
+      });
+      restante -= distribuido;
+      if (distribuido < 0.5) break;               // não deu pra distribuir mais
+    }
+    livres.forEach(x => {
+      x.r.qtdProj = Math.round(x.r.qtdProj);
+      if (x.r.qtdProj > x.r._qtdProjSemLimite) x.r._recebeuRedistribuicao = true;
+    });
+  }
+
+  // Recalcula participação (partFinal) das linhas do 1º mês com base no alvo
+  linhas.forEach(r => { r.partFinal = alvoMes > 0 ? (r.qtdProj / alvoMes) : 0; });
 }
 
 // Define a cobertura planejada de UM mês específico e recalcula
@@ -3456,31 +3504,38 @@ function doRenderCompraTab() {
   const skusComCompra     = resultados.filter(r => r.totalCompra > 0).length;
   const skusZerados       = resultados.filter(r => r.estoqueInicial === 0).length;
 
-  // Summary cards
-  document.getElementById('summaryCompra').innerHTML = `
-    <div class="summary-card">
-      <div class="sc-label">Demanda Total</div>
-      <div class="sc-val" style="color:#1d4ed8">${fmtInt(totalGeralDemanda)} <span style="font-size:14px">CX</span></div>
-      <div class="sc-sub">${nMeses} mês(es) projetado(s)</div>
+  // Total a comprar POR MÊS (soma da compra sugerida de todos os produtos)
+  const compraPorMes = {};
+  mesesOrdenados.forEach(am => compraPorMes[am] = 0);
+  resultados.forEach(r => {
+    mesesOrdenados.forEach(am => {
+      if (r.meses[am]) compraPorMes[am] += (r.meses[am].compraSugerida || 0);
+    });
+  });
+
+  // Summary cards: um cartão de COMPRA por mês + totais
+  const cardsMes = mesesOrdenados.map((am, idx) => `
+    <div class="summary-card" style="border-top-color:#dc2626;">
+      <div class="sc-label">🛒 ${fmtAM(am)}</div>
+      <div class="sc-val" style="color:#dc2626">${fmtInt(compraPorMes[am])} <span style="font-size:14px">CX</span></div>
+      <div class="sc-sub">${fmtInt(compraPorMes[am]*12)} pares · cobertura ${coberturaArr[idx].toLocaleString('pt-BR')}m</div>
+    </div>`).join('');
+
+  document.getElementById('summaryCompra').innerHTML = cardsMes + `
+    <div class="summary-card" style="border-top-color:#7f1d1d;">
+      <div class="sc-label">🛒 Total a Comprar</div>
+      <div class="sc-val" style="color:#7f1d1d">${fmtInt(totalGeralCompra)} <span style="font-size:14px">CX</span></div>
+      <div class="sc-sub">${fmtInt(totalGeralCompra*12)} pares · ${skusComCompra} SKU(s)</div>
     </div>
     <div class="summary-card" style="border-top-color:#059669;">
       <div class="sc-label">Estoque Atual</div>
       <div class="sc-val" style="color:#059669">${fmtInt(totalEstoque)} <span style="font-size:14px">CX</span></div>
       <div class="sc-sub">${skusZerados} SKU(s) zerado(s)</div>
     </div>
-    <div class="summary-card" style="border-top-color:#7c3aed;">
-      <div class="sc-label">Cobertura Após Cada Mês</div>
-      <div class="sc-val" style="color:#7c3aed">${
-        ([...new Set(coberturaArr)].length === 1)
-          ? `${coberturaArr[0].toLocaleString('pt-BR')} <span style="font-size:14px">meses</span>`
-          : `<span style="font-size:16px">${coberturaArr.map(c => c.toLocaleString('pt-BR')).join(' · ')} <span style="font-size:12px">meses</span></span>`
-      }</div>
-      <div class="sc-sub">${([...new Set(coberturaArr)].length === 1) ? 'buffer de demanda futura · o último mês define o estoque final' : 'buffer por mês · o último mês define o estoque final'}</div>
-    </div>
-    <div class="summary-card" style="border-top-color:#dc2626;">
-      <div class="sc-label">🛒 Total a Comprar</div>
-      <div class="sc-val" style="color:#dc2626">${fmtInt(totalGeralCompra)} <span style="font-size:14px">CX</span></div>
-      <div class="sc-sub">${fmtInt(totalGeralCompra*12)} pares · ${skusComCompra} SKU(s)</div>
+    <div class="summary-card">
+      <div class="sc-label">Demanda Total</div>
+      <div class="sc-val" style="color:#1d4ed8">${fmtInt(totalGeralDemanda)} <span style="font-size:14px">CX</span></div>
+      <div class="sc-sub">${nMeses} mês(es) projetado(s)</div>
     </div>
   `;
 

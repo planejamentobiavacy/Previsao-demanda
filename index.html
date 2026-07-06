@@ -1032,6 +1032,11 @@
       <div class="loader" id="loader1"><div class="spin"></div>Processando arquivo...</div>
 
       <div class="btn-actions">
+        <button class="btn btn-secondary" id="btnGerarFerramenta" disabled onclick="gerarFerramenta()"
+          title="Gera um HTML com os dados embutidos que abre direto na configuração — para publicar no GitHub"
+          style="border-color:#7c3aed;color:#7c3aed;">
+          📦 Gerar ferramenta
+        </button>
         <button class="btn btn-primary" id="btnStep1" disabled onclick="goStep(2)">
           Continuar →
         </button>
@@ -1100,6 +1105,7 @@
         </button>
       </div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-secondary" onclick="salvarSortimentoAtivo()" style="border-color:#0891b2;color:#0891b2;font-size:12px;" title="Salva quais produtos/grades estão disponíveis; serão carregados automaticamente toda vez que abrir">🏷️ Salvar sortimento ativo</button>
         <button class="btn btn-secondary" onclick="abrirCenario()" style="border-color:#7c3aed;color:#7c3aed;font-size:12px;">📂 Abrir</button>
         <button class="btn btn-secondary" onclick="salvarCenario()" style="border-color:#059669;color:#059669;font-size:12px;">💾 Salvar cenário</button>
         <span class="step-tag" id="resultSub">Step 03 / 03</span>
@@ -1345,6 +1351,7 @@ function handleFile(file) {
           </div>`;
           populateFornecedor();
           document.getElementById('btnStep1').disabled = false;
+          const bg = document.getElementById('btnGerarFerramenta'); if (bg) bg.disabled = false;
           toast('Base carregada com sucesso!', 'success');
         } else {
           toast('Colunas não identificadas. Veja o diagnóstico abaixo.', 'error');
@@ -1412,6 +1419,73 @@ function handleStkFile(file) {
   if (ext === 'csv') reader.readAsText(file, 'UTF-8');
   else reader.readAsArrayBuffer(file);
 }
+
+// ── GERAR FERRAMENTA (HTML com dados embutidos) ───────────────────
+async function gerarFerramenta() {
+  if (!rawData || !rawData.length) { toast('Importe a base de vendas primeiro.', 'error'); return; }
+  const btn = document.getElementById('btnGerarFerramenta');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando…'; }
+  try {
+    const resp = await fetch(window.location.href, { cache: 'no-store' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    let html = await resp.text();
+
+    const payload = { rawData, stkData };
+    const json = JSON.stringify(payload).replace(/<\//g, '<\\/');
+    const dataScript = '<script id="__EMBEDDED_DATA__">window.__EMBEDDED_DATA__ = ' + json + ';<\/script>';
+
+    // Remove bloco embutido anterior (evita duplicar ao regenerar a partir de uma ferramenta já gerada)
+    html = html.replace(/<script id="__EMBEDDED_DATA__">[\s\S]*?<\/script>\s*/, '');
+    if (html.includes('</head>')) html = html.replace('</head>', dataScript + '\n</head>');
+    else html = dataScript + '\n' + html;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'index.html';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+    const mb = (blob.size / 1024 / 1024).toFixed(1);
+    toast(`✅ Ferramenta gerada (${mb} MB). Faça upload no GitHub como index.html.`, 'success');
+  } catch (e) {
+    toast('Erro ao gerar. Rode a partir da URL do GitHub (não como arquivo local aberto direto).', 'error');
+    console.error('gerarFerramenta:', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📦 Gerar ferramenta'; }
+  }
+}
+
+// Carrega dados embutidos (quando o HTML foi gerado por "Gerar ferramenta")
+function carregarDadosEmbedados() {
+  if (!window.__EMBEDDED_DATA__) return false;
+  try {
+    const d = window.__EMBEDDED_DATA__;
+    rawData = d.rawData || [];
+    stkData = d.stkData || [];
+    stkByLoteMonth = {};
+    stkData.forEach(r => {
+      if (r.lote && r.ano_mes) {
+        const k = r.lote + '|' + r.ano_mes;
+        stkByLoteMonth[k] = (stkByLoteMonth[k] || 0) + r.estoque_cx;
+      }
+    });
+    if (rawData.length) {
+      populateFornecedor();
+      const b1 = document.getElementById('btnStep1'); if (b1) b1.disabled = false;
+      const bg = document.getElementById('btnGerarFerramenta'); if (bg) bg.disabled = false;
+      goStep(2);  // abre direto na configuração
+    }
+    return true;
+  } catch (e) {
+    console.error('Falha ao carregar dados embutidos:', e);
+    return false;
+  }
+}
+document.addEventListener('DOMContentLoaded', () => { setTimeout(carregarDadosEmbedados, 60); });
 
 function normalizeStkData(data) {
   if (!data.length) return [];
@@ -2572,6 +2646,8 @@ function calcularTodos() {
   renderResultsMulti(allRows, { forn, marca, meses: rows_mes });
   goStep(3);
   switchTab('grade');
+  // Carrega o sortimento ativo salvo (produtos/grades disponíveis) e reaplica
+  setTimeout(() => { try { carregarSortimentoAtivo(); } catch(e){ console.error(e); } }, 120);
 }
 
 // ── CÁLCULO ──────────────────────────────────────────────────
@@ -5884,6 +5960,50 @@ async function excluirCenario(id, btnEl) {
 
 function fecharCenarioModal() {
   document.getElementById('cenarioModal').style.display = 'none';
+}
+
+// ══════════════════════════════════════════════════════════════
+// SORTIMENTO ATIVO — quais produtos/grades estão disponíveis.
+// Salvo por marca no Supabase e recarregado automaticamente ao abrir.
+// ══════════════════════════════════════════════════════════════
+function _sortimentoId() {
+  if (!window._exportData) return 'default';
+  return window._exportData.marca || window._exportData.forn || 'default';
+}
+
+async function salvarSortimentoAtivo() {
+  if (!_supaOk()) return;
+  if (!window._exportData) { toast('Calcule a projeção primeiro.', 'error'); return; }
+  const id = _sortimentoId();
+  const opcoes = [...(window._opcoesDesativadas || [])];
+  const grades = [...(window._gradesDesativadas || [])];
+  try {
+    const { error } = await window.supabase.from('sortimento').upsert({
+      id, opcoes, grades, atualizado_em: new Date().toISOString()
+    });
+    if (error) throw error;
+    toast(`✅ Sortimento ativo salvo para ${id}. Será carregado automaticamente.`, 'success');
+  } catch (e) {
+    toast('Erro ao salvar sortimento: ' + (e.message || e), 'error');
+  }
+}
+
+async function carregarSortimentoAtivo() {
+  if (!window._supabaseReady || !window.supabase || !window._exportData) return;
+  const id = _sortimentoId();
+  try {
+    const { data, error } = await window.supabase
+      .from('sortimento').select('opcoes, grades').eq('id', id).maybeSingle();
+    if (error) throw error;
+    if (!data) return;
+    window._opcoesDesativadas = new Set(data.opcoes || []);
+    window._gradesDesativadas = new Set(data.grades || []);
+    if ((data.opcoes && data.opcoes.length) || (data.grades && data.grades.length)) {
+      aplicarDescontinuadosERecalcular();
+    }
+  } catch (e) {
+    console.error('carregarSortimentoAtivo:', e);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════

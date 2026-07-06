@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v26 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v27 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1184,11 +1184,6 @@
             <div style="font-size:10px;font-weight:800;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;">Buscar</div>
             <input type="text" id="compraSearch" placeholder="🔍 Família, cor..." oninput="filterCompraTable()"
               style="background:#fff;border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-family:'Barlow',sans-serif;font-size:13px;padding:9px 14px;outline:none;width:260px;">
-          </div>
-          <div>
-            <div style="font-size:10px;font-weight:800;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;">Cobertura padrão (meses)</div>
-            <input type="number" id="coberturaPlanejada" min="0" step="0.5" value="2" oninput="aplicarCoberturaGlobalCompra(this.value)"
-              style="background:#fff;border:1.5px solid var(--accent);border-radius:5px;color:var(--text);font-family:'Barlow',sans-serif;font-size:16px;font-weight:800;padding:8px 14px;outline:none;width:140px;text-align:center;" title="Aplica a todos os meses. Você pode ajustar mês a mês no cabeçalho da tabela.">
           </div>
           <button class="btn btn-success" onclick="exportCompraCSV()">⬇ Exportar CSV</button>
         </div>
@@ -3208,12 +3203,6 @@ function setCoberturaMes(anomes, val) {
   renderCompraTab();
 }
 
-// Cobertura padrão (input global): aplica a TODOS os meses (limpa ajustes individuais)
-function aplicarCoberturaGlobalCompra(val) {
-  window._coberturaPorMes = {};   // volta todos os meses ao padrão
-  renderCompraTab();
-}
-
 function renderCompraTab() {
   if (!window._exportData) return;
 
@@ -3231,14 +3220,16 @@ function doRenderCompraTab() {
   if (!window._exportData) return;
   buildGradesCache();  // lazy — só constrói uma vez
   const { allRows, forn, marca, meses } = window._exportData;
-  const coberturaGlobal = parseFloat(document.getElementById('coberturaPlanejada')?.value) || 0;
+  // Cobertura padrão dos meses ainda não ajustados manualmente (2 meses)
+  if (window._coberturaDefaultCompra === undefined) window._coberturaDefaultCompra = 2;
+  const coberturaGlobal = window._coberturaDefaultCompra;
 
   // Lista de meses projetados em ordem cronológica
   const mesesOrdenados = [...meses].map(m => m.anomes).sort();
   const nMeses = mesesOrdenados.length;
   if (nMeses === 0) return;
 
-  // Cobertura planejada POR MÊS (fallback = cobertura padrão/global)
+  // Cobertura planejada POR MÊS (fallback = cobertura padrão)
   if (!window._coberturaPorMes) window._coberturaPorMes = {};
   const coberturaArr = mesesOrdenados.map(am => {
     const v = window._coberturaPorMes[am];
@@ -3484,7 +3475,7 @@ function doRenderCompraTab() {
           ? `${coberturaArr[0].toLocaleString('pt-BR')} <span style="font-size:14px">meses</span>`
           : `<span style="font-size:16px">${coberturaArr.map(c => c.toLocaleString('pt-BR')).join(' · ')} <span style="font-size:12px">meses</span></span>`
       }</div>
-      <div class="sc-sub">${([...new Set(coberturaArr)].length === 1) ? 'de demanda futura como buffer' : 'buffer por mês (ajustável no cabeçalho)'}</div>
+      <div class="sc-sub">${([...new Set(coberturaArr)].length === 1) ? 'buffer de demanda futura · o último mês define o estoque final' : 'buffer por mês · o último mês define o estoque final'}</div>
     </div>
     <div class="summary-card" style="border-top-color:#dc2626;">
       <div class="sc-label">🛒 Total a Comprar</div>
@@ -3629,7 +3620,6 @@ function showMoreCompra() {
 function exportCompraCSV() {
   if (!window._compraData) return;
   const { forn, marca } = window._exportData;
-  const cobertura = parseFloat(document.getElementById('coberturaPlanejada')?.value) || 0;
   const mesesOrd = window._compraMesesOrdenados || [];
 
   // Cabeçalho: identificação + APENAS a compra (CX) por mês + total

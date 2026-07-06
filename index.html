@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v18 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v19 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1159,6 +1159,7 @@
               <th style="width:36px;text-align:center;" title="Ativo (projetar)"><span style="font-size:14px;">✓</span></th>
               <th style="width:30px;"></th>
               <th>Opção (Família + Cor)</th>
+              <th>Coleção</th>
               <th class="right">Proj. Opção (CX)</th>
               <th class="right">Proj. Opção (Pares)</th>
               <th class="right">Grades</th>
@@ -3628,7 +3629,7 @@ function renderGradeTab() {
   if (!window._exportData) return;
 
   const bodyEl = document.getElementById('gradeBody');
-  if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="6" style="padding:30px;text-align:center;color:#64748b;">⏳ Carregando projeção por grade…</td></tr>';
+  if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="8" style="padding:30px;text-align:center;color:#64748b;">⏳ Carregando projeção por grade…</td></tr>';
 
   if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
   setTimeout(() => doRenderGradeTab(), 50);
@@ -3636,6 +3637,8 @@ function renderGradeTab() {
 
 function doRenderGradeTab() {
   const { allRows, forn, marca, meses } = window._exportData;
+  // Garante o mapa produto→coleção atualizado para exibir a coluna
+  if (typeof _buildColecaoPorProduto === 'function') _buildColecaoPorProduto();
 
   // Filtra a base pela marca/fornecedor selecionados
   const base = rawData.filter(r =>
@@ -4038,6 +4041,7 @@ function doRenderGradeTab() {
         ${!isOpAtiva ? '<span style="margin-left:8px;background:#dc2626;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;">DESCONTINUADO</span>' : ''}
         ${(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean]) ? `<span title="Um ou mais meses projetados não têm histórico próprio deste produto — usando sazonalidade da MARCA como referência. Revise se aplicável." style="margin-left:8px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #fde68a;cursor:help;">⚠️ SAZ. MARCA (${[...new Set(window._fallbackPorOpcao[opKeyClean].meses)].map(am => am.substring(4,6)+'/'+am.substring(2,4)).join(', ')})</span>` : ''}
       </td>
+      <td style="font-size:11.5px;color:#64748b;${!isOpAtiva ? 'text-decoration:line-through;color:#cbd5e1;' : ''}">${(window._colecaoPorProduto && window._colecaoPorProduto[opKeyClean]) ? window._colecaoPorProduto[opKeyClean] : '—'}</td>
       <td class="right"><span class="badge badge-success" style="${!isOpAtiva ? 'background:#e2e8f0;color:#94a3b8;text-decoration:line-through;' : ''}">${fmtInt(g.projOpcao)} CX</span></td>
       <td class="right" style="color:#64748b;${!isOpAtiva ? 'text-decoration:line-through;color:#cbd5e1;' : ''}">${fmtInt(g.projOpcao * 12)}</td>
       <td class="right" style="color:#7c3aed;font-weight:700;">${g.grades.length}</td>
@@ -4068,6 +4072,7 @@ function doRenderGradeTab() {
             ${!isGradeAtiva && isOpAtiva ? '<span style="margin-left:6px;background:#dc2626;color:#fff;padding:1px 6px;border-radius:3px;font-size:8px;font-weight:800;">DESCONTINUADA</span>' : ''}
             ${showMes ? `<div style="margin-top:3px;font-size:10.5px;color:#94a3b8;">${breakdownMes}</div>` : ''}
           </td>
+          <td></td>
           <td class="right" style="font-weight:700;color:${isGradeAtiva?'#059669':'#cbd5e1'};${!isGradeAtiva?'text-decoration:line-through;':''}">${fmtInt(gr.qtdProj)} CX</td>
           <td class="right" style="color:#64748b;font-size:12px;${!isGradeAtiva?'text-decoration:line-through;color:#cbd5e1;':''}">${fmtInt(gr.qtdProj * 12)} pares</td>
           <td class="right" style="color:#1d4ed8;font-size:12px;">${gr.mesesHist}m hist.</td>
@@ -4075,7 +4080,7 @@ function doRenderGradeTab() {
         </tr>`;
         }).join('')
       : `<tr class="grade-row grade-row-${opKey}" style="display:none;background:#fafbfc;">
-          <td></td><td></td><td colspan="5" style="padding:14px;color:#94a3b8;font-style:italic;text-align:center;">⚠️ Sem grades vinculadas — projeção atribuída direto à opção</td>
+          <td></td><td></td><td colspan="6" style="padding:14px;color:#94a3b8;font-style:italic;text-align:center;">⚠️ Sem grades vinculadas — projeção atribuída direto à opção</td>
         </tr>`;
 
     return headerRow + gradesRows;

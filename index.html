@@ -1032,7 +1032,7 @@
       <div class="loader" id="loader1"><div class="spin"></div>Processando arquivo...</div>
 
       <div class="btn-actions">
-        <button class="btn btn-secondary" id="btnGerarFerramenta" disabled onclick="gerarFerramenta()"
+        <button class="btn btn-secondary" id="btnGerarFerramenta" onclick="gerarFerramenta()"
           title="Gera um HTML com os dados embutidos que abre direto na configuração — para publicar no GitHub"
           style="border-color:#7c3aed;color:#7c3aed;">
           📦 Gerar ferramenta
@@ -1088,6 +1088,7 @@
 
     <div class="btn-actions">
       <button class="btn btn-secondary" onclick="goStep(1)">← Voltar</button>
+      <button class="btn btn-secondary" onclick="gerarFerramenta()" style="border-color:#7c3aed;color:#7c3aed;" title="Gera um HTML com os dados embutidos para publicar no GitHub">📦 Gerar ferramenta</button>
       <button class="btn btn-secondary" onclick="abrirCenario()" style="border-color:#7c3aed;color:#7c3aed;">📂 Abrir cenário</button>
       <button class="btn btn-primary" id="btnCalcular" onclick="calcularTodos()">Calcular Previsão →</button>
     </div>

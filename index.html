@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v16 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v17 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1142,6 +1142,10 @@
               style="background:#fff;border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-family:'Barlow',sans-serif;font-size:13px;font-weight:500;padding:9px 14px 9px 14px;outline:none;width:320px;transition:border-color 0.18s;">
           </div>
           <span id="gradeSearchInfo" style="font-size:11px;color:#64748b;font-weight:600;"></span>
+          <div style="position:relative;">
+            <button id="btnColecao" onclick="toggleColecaoDropdown()" title="Filtrar coleções — desmarque as coleções antigas para removê-las da projeção" style="background:#fff;border:1.5px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">🏷️ Coleções</button>
+            <div id="colecaoDropdown" style="display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:50;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.15);width:340px;"></div>
+          </div>
           <button id="btnFiltroFallback" onclick="toggleFiltroFallback()" title="Mostrar só produtos que projetam com sazonalidade da marca (sem histórico próprio do mês)" style="background:#fef3c7;border:1.5px solid #fde68a;color:#92400e;padding:8px 12px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">⚠️ Só Saz. Marca</button>
           <button class="btn btn-secondary" onclick="goStep(2)" style="font-size:12px;">← Ajustar</button>
           <button class="btn btn-success" onclick="exportGradeCSV()">⬇ Exportar CSV</button>
@@ -1857,6 +1861,7 @@ function normalizeData(data) {
   const colCx       = find(['CX','cx','caixa','caixas','qtd_cx','qtdcx','boxes','box']);
   const colGrade    = find(['GRADE','grade','LOTE','lote','cod_grade','codigo_grade']);
   const colDescGrade= find(['DESC_GRADE','desc_grade','descgrade','descricao_grade','desc_lote']);
+  const colColecao  = find(['COLECAO','colecao','coleção','colecoes','collection','temporada','season','linha']);
 
   console.log('Mapeamento colunas:', { colForn, colMarca, colFam, colCor, colAnomes, colQtd });
   console.log('Colunas disponíveis:', keys);
@@ -1905,6 +1910,7 @@ function normalizeData(data) {
       categoria:    String(row[colCategoria] || '').trim(),
       grade:        String(row[colGrade] || '').trim(),
       desc_grade:   String(row[colDescGrade] || '').trim(),
+      colecao:      String(row[colColecao] || '').trim(),
       cx:           (() => {
         const v = row[colCx];
         if (v === null || v === undefined || v === '') return 0;
@@ -3609,6 +3615,7 @@ function renderGradeTab() {
   const bodyEl = document.getElementById('gradeBody');
   if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="6" style="padding:30px;text-align:center;color:#64748b;">⏳ Carregando projeção por grade…</td></tr>';
 
+  if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
   setTimeout(() => doRenderGradeTab(), 50);
 }
 
@@ -4582,6 +4589,124 @@ function buildInfoPanelGradeHTML() {
 // Sets globais que persistem entre renderizações
 if (!window._opcoesDesativadas)  window._opcoesDesativadas  = new Set();
 if (!window._gradesDesativadas)  window._gradesDesativadas  = new Set();
+if (!window._colecoesDesativadas) window._colecoesDesativadas = new Set();
+
+// Mapeia cada produto (família|||cor) à sua coleção MAIS RECENTE, dentro do forn+marca atual
+function _buildColecaoPorProduto() {
+  const map = {};
+  const forn  = window._exportData && window._exportData.forn;
+  const marca = window._exportData && window._exportData.marca;
+  (rawData || []).forEach(r => {
+    if (forn  && r.fornecedor !== forn)  return;
+    if (marca && r.marca      !== marca) return;
+    const prodKey = r.nome_familia + '|||' + r.desc_cor;
+    const col = (r.colecao && r.colecao.trim()) ? r.colecao.trim() : '(sem coleção)';
+    const cur = map[prodKey];
+    if (!cur || (r.ano_mes || '') > cur.mes) map[prodKey] = { colecao: col, mes: r.ano_mes || '' };
+  });
+  window._colecaoPorProduto = {};
+  Object.keys(map).forEach(k => { window._colecaoPorProduto[k] = map[k].colecao; });
+  return window._colecaoPorProduto;
+}
+
+// Lista de coleções (com contagem de produtos), ordenada pela mais recente
+function _colecoesDisponiveis() {
+  const map = _buildColecaoPorProduto();
+  const cont = {}, ultimoMes = {};
+  const forn  = window._exportData && window._exportData.forn;
+  const marca = window._exportData && window._exportData.marca;
+  Object.keys(map).forEach(k => { cont[map[k]] = (cont[map[k]] || 0) + 1; });
+  (rawData || []).forEach(r => {
+    if (forn  && r.fornecedor !== forn)  return;
+    if (marca && r.marca      !== marca) return;
+    const col = (r.colecao && r.colecao.trim()) ? r.colecao.trim() : '(sem coleção)';
+    if (!ultimoMes[col] || (r.ano_mes||'') > ultimoMes[col]) ultimoMes[col] = r.ano_mes || '';
+  });
+  return Object.keys(cont)
+    .map(c => ({ nome: c, qtd: cont[c], ultimoMes: ultimoMes[c] || '' }))
+    .sort((a,b) => b.ultimoMes.localeCompare(a.ultimoMes));  // mais recente primeiro
+}
+
+function toggleColecaoDropdown() {
+  const dd = document.getElementById('colecaoDropdown');
+  if (!dd) return;
+  if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
+  renderColecaoFilter();
+  dd.style.display = 'block';
+}
+
+function renderColecaoFilter() {
+  const dd = document.getElementById('colecaoDropdown');
+  if (!dd) return;
+  const cols = _colecoesDisponiveis();
+  if (!cols.length) {
+    dd.innerHTML = '<div style="padding:12px;font-size:12px;color:#64748b;">Sem informação de coleção na base.</div>';
+    return;
+  }
+  const fmtMes = m => m && m.length === 6 ? m.substring(4,6)+'/'+m.substring(0,4) : '—';
+  dd.innerHTML =
+    '<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid #e5e7eb;">'
+    + '<button onclick="marcarTodasColecoes(true)" style="background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">Marcar todas</button>'
+    + '<button onclick="marcarTodasColecoes(false)" style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">Desmarcar todas</button>'
+    + '</div>'
+    + '<div style="max-height:320px;overflow-y:auto;padding:6px 4px;">'
+    + cols.map(c => {
+        const ativa = !window._colecoesDesativadas.has(c.nome);
+        const cid = 'col_' + c.nome.replace(/[^a-zA-Z0-9]/g,'_');
+        return `<label for="${cid}" style="display:flex;align-items:center;gap:10px;padding:7px 10px;cursor:pointer;border-radius:5px;font-size:12px;color:#1e293b;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+          <input type="checkbox" id="${cid}" ${ativa?'checked':''} onchange="toggleColecao('${c.nome.replace(/'/g,"\\'")}', this.checked)" style="width:15px;height:15px;cursor:pointer;">
+          <span style="flex:1;font-weight:600;">${c.nome}</span>
+          <span style="color:#94a3b8;font-size:10px;">últ. ${fmtMes(c.ultimoMes)} · ${c.qtd} prod.</span>
+        </label>`;
+      }).join('')
+    + '</div>';
+}
+
+function toggleColecao(nome, ativa) {
+  if (!window._colecaoPorProduto) _buildColecaoPorProduto();
+  if (ativa) window._colecoesDesativadas.delete(nome);
+  else       window._colecoesDesativadas.add(nome);
+  // Aplica sobre os produtos daquela coleção usando o mesmo mecanismo de desativados
+  Object.keys(window._colecaoPorProduto).forEach(prodKey => {
+    if (window._colecaoPorProduto[prodKey] === nome) {
+      if (ativa) window._opcoesDesativadas.delete(prodKey);
+      else       window._opcoesDesativadas.add(prodKey);
+    }
+  });
+  aplicarDescontinuadosERecalcular();
+  atualizarBotaoColecao();
+}
+
+function marcarTodasColecoes(ativa) {
+  const cols = _colecoesDisponiveis();
+  cols.forEach(c => {
+    if (ativa) window._colecoesDesativadas.delete(c.nome);
+    else       window._colecoesDesativadas.add(c.nome);
+    Object.keys(window._colecaoPorProduto || {}).forEach(prodKey => {
+      if (window._colecaoPorProduto[prodKey] === c.nome) {
+        if (ativa) window._opcoesDesativadas.delete(prodKey);
+        else       window._opcoesDesativadas.add(prodKey);
+      }
+    });
+  });
+  aplicarDescontinuadosERecalcular();
+  renderColecaoFilter();
+  atualizarBotaoColecao();
+}
+
+function atualizarBotaoColecao() {
+  const btn = document.getElementById('btnColecao');
+  if (!btn) return;
+  const nDesat = window._colecoesDesativadas ? window._colecoesDesativadas.size : 0;
+  if (nDesat > 0) {
+    btn.style.background = '#ede9fe'; btn.style.borderColor = '#c4b5fd'; btn.style.color = '#6d28d9';
+    btn.textContent = `🏷️ Coleções (${nDesat} oculta${nDesat>1?'s':''})`;
+  } else {
+    btn.style.background = '#fff'; btn.style.borderColor = 'var(--border)'; btn.style.color = 'var(--text)';
+    btn.textContent = '🏷️ Coleções';
+  }
+}
+
 
 function toggleOpcaoAtiva(familia, cor, ativa) {
   const key = familia + '|||' + cor;

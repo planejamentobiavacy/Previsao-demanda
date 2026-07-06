@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v30 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v31 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -3405,6 +3405,10 @@ function doRenderCompraTab() {
   const nProdutos = produtos.length;
   for (let p = 0; p < nProdutos; p++) {
     const prod = produtos[p];
+    // Só sugere compra para produtos ATIVOS — respeita a seleção da aba de Demanda
+    // (descontinuados manuais e produtos de coleção oculta ficam de fora)
+    if (window._opcoesDesativadas && window._opcoesDesativadas.has(prod.key)) continue;
+    if (typeof _colecaoExcluida === 'function' && _colecaoExcluida(prod.key)) continue;
     const demandaMap = demandaPorMesMap.get(prod.key) || new Map();
     const gradesMap  = gradesPorOpcao.get(prod.key);
 

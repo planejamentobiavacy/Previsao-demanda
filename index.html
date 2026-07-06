@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v14 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v16 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1035,12 +1035,12 @@
       <div class="loader" id="loader1"><div class="spin"></div>Processando arquivo...</div>
 
       <div class="btn-actions">
-        <button class="btn btn-secondary" id="btnPublicarBase" onclick="publicarBase(this)"
+        <button class="btn btn-secondary admin-only" id="btnPublicarBase" onclick="publicarBase(this)"
           title="Envia a base para o servidor (Supabase). Depois é só abrir a URL do GitHub — nada de gerar/subir arquivo."
           style="border-color:#0ea5e9;color:#0284c7;">
           ☁️ Publicar base
         </button>
-        <button class="btn btn-secondary" id="btnGerarFerramenta" onclick="gerarFerramenta()"
+        <button class="btn btn-secondary admin-only" id="btnGerarFerramenta" onclick="gerarFerramenta()"
           title="(Alternativa) Gera um HTML com os dados embutidos para publicar no GitHub"
           style="border-color:#7c3aed;color:#7c3aed;">
           📦 Gerar ferramenta
@@ -1096,7 +1096,7 @@
 
     <div class="btn-actions">
       <button class="btn btn-secondary" onclick="goStep(1)">← Voltar</button>
-      <button class="btn btn-secondary" onclick="gerarFerramenta()" style="border-color:#7c3aed;color:#7c3aed;" title="Gera um HTML com os dados embutidos para publicar no GitHub">📦 Gerar ferramenta</button>
+      <button class="btn btn-secondary admin-only" onclick="gerarFerramenta()" style="border-color:#7c3aed;color:#7c3aed;" title="Gera um HTML com os dados embutidos para publicar no GitHub">📦 Gerar ferramenta</button>
       <button class="btn btn-secondary" onclick="abrirCenario()" style="border-color:#7c3aed;color:#7c3aed;">📂 Abrir cenário</button>
       <button class="btn btn-primary" id="btnCalcular" onclick="calcularTodos()">Calcular Previsão →</button>
     </div>
@@ -1620,6 +1620,10 @@ document.addEventListener('DOMContentLoaded', () => { setTimeout(carregarDadosEm
 document.addEventListener('DOMContentLoaded', () => {
   if (!window._pristineHTML) {
     window._pristineHTML = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  }
+  // Na versão do GitHub (nuvem), esconde os botões de admin (gerar/publicar)
+  if (_CLOUD_MODE) {
+    document.querySelectorAll('.admin-only').forEach(el => { el.style.display = 'none'; });
   }
   // Banner de diagnóstico: mostra a contagem de registros embutidos neste arquivo
   const temMarker = (window.__EMBEDDED_COUNT__ !== undefined) || !!window.__EMBEDDED_DATA_GZ__ || !!window.__EMBEDDED_DATA_B64__;
@@ -5785,30 +5789,38 @@ function aplicarAjusteCascata(familia, cor, anomes) {
   if (idxM < 0) return;
 
   const rowM  = linhas[idxM];
-  const baseM = rowM.qtdProj || 0;         // valor atual do mês âncora (a curva)
-  const sazM  = rowM.indiceSazonal || 0;
+  const baseM = rowM.qtdProj || 0;         // valor atual do mês âncora (fallback de curva)
+  const sazM  = rowM.indiceSazonal || 0;   // índice sazonal do mês âncora
 
   rowM.qtdProj = Math.round(V);
   rowM._ajusteManual = true;
 
+  let alterou = 0;
   for (let i = idxM + 1; i < linhas.length; i++) {
     const rowF = linhas[i];
     let novo;
-    if (baseM > 0) {
-      novo = Math.round(V * (rowF.qtdProj / baseM));       // mantém a curva visível
-    } else if (sazM > 0 && rowF.indiceSazonal) {
-      novo = Math.round(V * (rowF.indiceSazonal / sazM));  // fallback: sazonalidade
+    if (sazM > 0 && rowF.indiceSazonal) {
+      // PRIMÁRIO: segue a curva sazonal da marca, ancorada no valor do mês editado
+      novo = Math.round(V * (rowF.indiceSazonal / sazM));
+    } else if (baseM > 0) {
+      // Fallback (sazonalidade desligada): mantém a forma da projeção atual
+      novo = Math.round(V * (rowF.qtdProj / baseM));
     } else {
       continue;
     }
     rowF.qtdProj = novo;
     rowF._ajusteManual = true;
+    alterou++;
   }
 
   recalcularComMesesIgnorados();
   const { forn, marca } = window._exportData;
   showHist(familia, cor, forn, marca);
-  toast(`Projeção recalculada a partir de ${anomes.substring(4,6)}/${anomes.substring(0,4)} — meses seguintes mantêm a curva.`, 'success');
+  if (alterou > 0) {
+    toast(`Projeção recalculada a partir de ${anomes.substring(4,6)}/${anomes.substring(0,4)} — ${alterou} ${alterou===1?'mês seguinte segue':'meses seguintes seguem'} a curva sazonal.`, 'success');
+  } else {
+    toast(`${anomes.substring(4,6)}/${anomes.substring(0,4)} é o último mês — não há meses seguintes para recalcular.`, 'error');
+  }
 }
 
 function liberarAjusteManual(familia, cor, anomes) {

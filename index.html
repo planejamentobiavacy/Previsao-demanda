@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v25 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v26 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1186,9 +1186,9 @@
               style="background:#fff;border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-family:'Barlow',sans-serif;font-size:13px;padding:9px 14px;outline:none;width:260px;">
           </div>
           <div>
-            <div style="font-size:10px;font-weight:800;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;">Cobertura Planejada (meses)</div>
-            <input type="number" id="coberturaPlanejada" min="0" step="0.5" value="2" oninput="renderCompraTab()"
-              style="background:#fff;border:1.5px solid var(--accent);border-radius:5px;color:var(--text);font-family:'Barlow',sans-serif;font-size:16px;font-weight:800;padding:8px 14px;outline:none;width:140px;text-align:center;">
+            <div style="font-size:10px;font-weight:800;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;">Cobertura padrão (meses)</div>
+            <input type="number" id="coberturaPlanejada" min="0" step="0.5" value="2" oninput="aplicarCoberturaGlobalCompra(this.value)"
+              style="background:#fff;border:1.5px solid var(--accent);border-radius:5px;color:var(--text);font-family:'Barlow',sans-serif;font-size:16px;font-weight:800;padding:8px 14px;outline:none;width:140px;text-align:center;" title="Aplica a todos os meses. Você pode ajustar mês a mês no cabeçalho da tabela.">
           </div>
           <button class="btn btn-success" onclick="exportCompraCSV()">⬇ Exportar CSV</button>
         </div>
@@ -3200,6 +3200,20 @@ function aplicarLimiteEstoquePrimeiroMes(allRows) {
   });
 }
 
+// Define a cobertura planejada de UM mês específico e recalcula
+function setCoberturaMes(anomes, val) {
+  if (!window._coberturaPorMes) window._coberturaPorMes = {};
+  const v = parseFloat(val);
+  window._coberturaPorMes[anomes] = isNaN(v) ? 0 : Math.max(0, v);
+  renderCompraTab();
+}
+
+// Cobertura padrão (input global): aplica a TODOS os meses (limpa ajustes individuais)
+function aplicarCoberturaGlobalCompra(val) {
+  window._coberturaPorMes = {};   // volta todos os meses ao padrão
+  renderCompraTab();
+}
+
 function renderCompraTab() {
   if (!window._exportData) return;
 
@@ -3217,12 +3231,19 @@ function doRenderCompraTab() {
   if (!window._exportData) return;
   buildGradesCache();  // lazy — só constrói uma vez
   const { allRows, forn, marca, meses } = window._exportData;
-  const cobertura = parseFloat(document.getElementById('coberturaPlanejada')?.value) || 0;
+  const coberturaGlobal = parseFloat(document.getElementById('coberturaPlanejada')?.value) || 0;
 
   // Lista de meses projetados em ordem cronológica
   const mesesOrdenados = [...meses].map(m => m.anomes).sort();
   const nMeses = mesesOrdenados.length;
   if (nMeses === 0) return;
+
+  // Cobertura planejada POR MÊS (fallback = cobertura padrão/global)
+  if (!window._coberturaPorMes) window._coberturaPorMes = {};
+  const coberturaArr = mesesOrdenados.map(am => {
+    const v = window._coberturaPorMes[am];
+    return (v === undefined || v === null || isNaN(v)) ? coberturaGlobal : v;
+  });
 
   // Cria mapa de demanda por (produto, mês)
   const demandaPorMesMap = new Map();  // 'familia|||cor' → Map('anomes' → cx)
@@ -3241,11 +3262,11 @@ function doRenderCompraTab() {
     produtos.push({ key: k, nome_familia: parts[0], desc_cor: parts[1] });
   });
 
-  // Pré-computa constantes de cobertura (fora do loop de produtos!)
-  const coberturaInt   = Math.ceil(cobertura);
-  const coberturaFloor = Math.floor(cobertura);
-  const coberturaFrac  = cobertura - coberturaFloor;
+  // Pré-computa constantes de cobertura POR MÊS (fora do loop de produtos!)
   const nMesesOrd = mesesOrdenados.length;
+  const cobIntArr   = coberturaArr.map(c => Math.ceil(c));
+  const cobFloorArr = coberturaArr.map(c => Math.floor(c));
+  const cobFracArr  = coberturaArr.map((c, i) => c - cobFloorArr[i]);
 
   // Helper otimizado: recebe ARRAY de demandas (não Map), retorna resultado
   function simularCompraMensal(demandaArr, estoqueInicial) {
@@ -3262,9 +3283,10 @@ function doRenderCompraTab() {
       totalDemanda += demandaMes;
       somaAte += demandaMes;
 
-      // Cobertura: soma dos próximos coberturaInt meses (com fração no último)
+      // Cobertura do mês idx: soma dos próximos cobInt meses (com fração no último)
+      const cobInt = cobIntArr[idx], cobFloor = cobFloorArr[idx], cobFrac = cobFracArr[idx];
       let coberturaCx = 0;
-      for (let i = 1; i <= coberturaInt; i++) {
+      for (let i = 1; i <= cobInt; i++) {
         const futuroIdx = idx + i;
         let demFuturo;
         if (futuroIdx < nMesesOrd) {
@@ -3273,9 +3295,9 @@ function doRenderCompraTab() {
           // Fora do horizonte → média mensal até aqui
           demFuturo = somaAte / (idx + 1);
         }
-        if (i === coberturaInt && coberturaFrac > 0) {
-          coberturaCx += demFuturo * coberturaFrac;
-        } else if (i <= coberturaFloor) {
+        if (i === cobInt && cobFrac > 0) {
+          coberturaCx += demFuturo * cobFrac;
+        } else if (i <= cobFloor) {
           coberturaCx += demFuturo;
         }
       }
@@ -3457,8 +3479,12 @@ function doRenderCompraTab() {
     </div>
     <div class="summary-card" style="border-top-color:#7c3aed;">
       <div class="sc-label">Cobertura Após Cada Mês</div>
-      <div class="sc-val" style="color:#7c3aed">${cobertura.toLocaleString('pt-BR')} <span style="font-size:14px">meses</span></div>
-      <div class="sc-sub">de demanda futura como buffer</div>
+      <div class="sc-val" style="color:#7c3aed">${
+        ([...new Set(coberturaArr)].length === 1)
+          ? `${coberturaArr[0].toLocaleString('pt-BR')} <span style="font-size:14px">meses</span>`
+          : `<span style="font-size:16px">${coberturaArr.map(c => c.toLocaleString('pt-BR')).join(' · ')} <span style="font-size:12px">meses</span></span>`
+      }</div>
+      <div class="sc-sub">${([...new Set(coberturaArr)].length === 1) ? 'de demanda futura como buffer' : 'buffer por mês (ajustável no cabeçalho)'}</div>
     </div>
     <div class="summary-card" style="border-top-color:#dc2626;">
       <div class="sc-label">🛒 Total a Comprar</div>
@@ -3473,7 +3499,17 @@ function doRenderCompraTab() {
     <th>Nome Família</th>
     <th>Desc Cor</th>
     <th class="right">Estoque Atual</th>
-    ${mesesOrdenados.map(am => `<th class="right" style="background:#1e3a8a;color:#fff;">📅 ${fmtAM(am)}</th>`).join('')}
+    ${mesesOrdenados.map((am, idx) => `<th class="right" style="background:#1e3a8a;color:#fff;padding:6px 8px;">
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+        <span>📅 ${fmtAM(am)}</span>
+        <div style="display:flex;align-items:center;gap:3px;font-size:9px;font-weight:700;color:#bfdbfe;letter-spacing:0.3px;">
+          COB:<input type="number" min="0" step="0.5" value="${coberturaArr[idx]}"
+            onchange="setCoberturaMes('${am}', this.value)" onclick="event.stopPropagation();"
+            title="Cobertura planejada (meses) para ${fmtAM(am)}"
+            style="width:46px;padding:2px 4px;border:none;border-radius:4px;text-align:center;font-size:11px;font-weight:800;color:#1e3a8a;background:#fff;">
+        </div>
+      </div>
+    </th>`).join('')}
     <th class="right" style="background:#7f1d1d;color:#fff;">Total Compra (CX)</th>
     <th class="right">Histórico</th>
   </tr>`;

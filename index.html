@@ -980,7 +980,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v10 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v11 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -6144,6 +6144,16 @@ async function initAuth() {
   if (!temEmbedado) {
     if (overlay) overlay.style.display = 'none';
     return;
+  }
+  // Mostra a contagem de registros embutidos na tela de login (verificação antes de subir)
+  const hint = document.getElementById('authHint');
+  if (hint) {
+    const n = (window.__EMBEDDED_COUNT__ !== undefined) ? window.__EMBEDDED_COUNT__ : null;
+    if (n === 0) {
+      hint.innerHTML = '<span style="color:#dc2626;font-weight:700;">⚠️ 0 registros embutidos — arquivo errado/vazio.</span>';
+    } else if (n) {
+      hint.innerHTML = '<span style="color:#059669;font-weight:700;">✅ ' + Number(n).toLocaleString('pt-BR') + ' registros embutidos.</span>';
+    }
   }
   // Espera o módulo do Supabase terminar de inicializar (é deferido)
   let tries = 0;

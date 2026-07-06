@@ -980,7 +980,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v11 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v12 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1539,15 +1539,25 @@ async function gerarFerramenta() {
 
 // Carrega dados embutidos (quando o HTML foi gerado por "Gerar ferramenta")
 async function carregarDadosEmbedados() {
+  const _banner = document.getElementById('embeddedBanner');
+  const _setBanner = (txt, cor) => {
+    if (!_banner) return;
+    _banner.style.display = 'block';
+    const map = { verde:['#dcfce7','#065f46','#86efac'], vermelho:['#fee2e2','#991b1b','#fecaca'], azul:['#dbeafe','#1e40af','#93c5fd'] };
+    const [bg,fg,bd] = map[cor] || map.verde;
+    _banner.style.background = bg; _banner.style.color = fg; _banner.style.border = '1px solid ' + bd;
+    _banner.textContent = txt;
+  };
   const temGz  = !!window.__EMBEDDED_DATA_GZ__;
   const temB64 = !!window.__EMBEDDED_DATA_B64__;
   let d = window.__EMBEDDED_DATA__ || null;
   if (!d && temGz) {
+    _setBanner('⏳ Carregando dados embutidos… aguarde alguns segundos.', 'azul');
     try {
       d = JSON.parse(await _b64ToUngzip(window.__EMBEDDED_DATA_GZ__));
     } catch (e) {
       console.error('Falha ao descomprimir dados embutidos:', e);
-      toast('⚠️ Dados embutidos (comprimidos) ilegíveis. Gere novamente com a versão atual.', 'error');
+      _setBanner('⚠️ Erro ao descomprimir os dados: ' + (e.message || e) + ' — gere novamente com o gerador atual.', 'vermelho');
       return false;
     }
   }
@@ -1556,7 +1566,7 @@ async function carregarDadosEmbedados() {
       d = JSON.parse(decodeURIComponent(escape(atob(window.__EMBEDDED_DATA_B64__))));
     } catch (e) {
       console.error('Falha ao decodificar dados embutidos:', e);
-      toast('⚠️ Este arquivo tem dados embutidos, mas estão ilegíveis. Gere novamente com a versão atual.', 'error');
+      _setBanner('⚠️ Dados embutidos ilegíveis — gere novamente com o gerador atual.', 'vermelho');
       return false;
     }
   }
@@ -1568,7 +1578,7 @@ async function carregarDadosEmbedados() {
     rawData = d.rawData || [];
     stkData = d.stkData || [];
     if (!rawData.length) {
-      toast('⚠️ Dados embutidos vazios. Gere a ferramenta novamente após importar a base.', 'error');
+      _setBanner('⚠️ Dados embutidos vazios (0 registros). Gere novamente após importar a base.', 'vermelho');
       return false;
     }
     stkByLoteMonth = {};
@@ -1582,15 +1592,15 @@ async function carregarDadosEmbedados() {
     const b1 = document.getElementById('btnStep1'); if (b1) b1.disabled = false;
     const bg = document.getElementById('btnGerarFerramenta'); if (bg) bg.disabled = false;
     goStep(2);  // abre direto na configuração
-    toast(`✅ Ferramenta com dados embutidos (${rawData.length.toLocaleString('pt-BR')} registros). Abrindo configuração.`, 'success');
+    toast(`✅ ${rawData.length.toLocaleString('pt-BR')} registros carregados. Abrindo configuração.`, 'success');
     return true;
   } catch (e) {
     console.error('Falha ao carregar dados embutidos:', e);
-    toast('⚠️ Erro ao carregar os dados embutidos: ' + (e.message || e), 'error');
+    _setBanner('⚠️ Erro ao preparar os dados: ' + (e.message || e), 'vermelho');
     return false;
   }
 }
-document.addEventListener('DOMContentLoaded', () => { setTimeout(carregarDadosEmbedados, 60); });
+document.addEventListener('DOMContentLoaded', () => { setTimeout(carregarDadosEmbedados, 120); });
 // Snapshot limpo do HTML no carregamento (para "Gerar ferramenta" funcionar offline/local)
 document.addEventListener('DOMContentLoaded', () => {
   if (!window._pristineHTML) {
@@ -1607,12 +1617,33 @@ document.addEventListener('DOMContentLoaded', () => {
       banner.style.background = vazio ? '#fee2e2' : '#dcfce7';
       banner.style.color = vazio ? '#991b1b' : '#065f46';
       banner.style.border = '1px solid ' + (vazio ? '#fecaca' : '#86efac');
-      banner.textContent = vazio
-        ? '⚠️ Este arquivo NÃO tem dados válidos embutidos (0 registros). Gere novamente após importar a base e suba o arquivo correto.'
-        : '✅ Este arquivo tem ' + Number(n).toLocaleString('pt-BR') + ' registros embutidos.';
+      if (vazio) {
+        banner.textContent = '⚠️ Este arquivo NÃO tem dados válidos embutidos (0 registros). Gere novamente após importar a base e suba o arquivo correto.';
+      } else {
+        banner.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">'
+          + '<span>✅ Este arquivo tem ' + Number(n).toLocaleString('pt-BR') + ' registros embutidos.</span>'
+          + '<button onclick="abrirConfigEmbedada(this)" style="background:#059669;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-family:\'Barlow\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;">▶ Abrir configuração</button>'
+          + '</div>';
+      }
     }
   }
 });
+
+// Carrega os dados embutidos (se ainda não) e vai para a configuração
+async function abrirConfigEmbedada(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Carregando…'; }
+  try {
+    if (!rawData || !rawData.length) {
+      const ok = await carregarDadosEmbedados();
+      if (!ok) { if (btn) { btn.disabled = false; btn.textContent = '▶ Abrir configuração'; } return; }
+    } else {
+      goStep(2);
+    }
+  } catch (e) {
+    console.error(e);
+    if (btn) { btn.disabled = false; btn.textContent = '▶ Abrir configuração'; }
+  }
+}
 
 function normalizeStkData(data) {
   if (!data.length) return [];

@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v38 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v39 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -6933,18 +6933,21 @@ function _sortimentoId() {
   return window._exportData.marca || window._exportData.forn || 'default';
 }
 
-async function salvarSortimentoAtivo() {
+async function salvarSortimentoAtivo(skipSessionCheck) {
   if (!_supaOk()) return;
   if (!window._exportData) { toast('Calcule a projeção primeiro.', 'error'); return; }
   // A tabela exige usuário logado (RLS). Se não houver sessão, abre o login e salva depois.
-  let sess = null;
-  try { sess = (await window.supabase.auth.getSession()).data.session; } catch(e){}
-  if (!sess || !sess.user) {
-    window._salvarSortimentoAposLogin = true;
-    const overlay = document.getElementById('authOverlay');
-    if (overlay) overlay.style.display = 'flex';
-    toast('Faça login para salvar o sortimento (ele será salvo sozinho após entrar).', 'error');
-    return;
+  // skipSessionCheck = true quando chamado logo após o login (a sessão já é válida) — evita loop.
+  if (!skipSessionCheck) {
+    let sess = null;
+    try { sess = (await window.supabase.auth.getSession()).data.session; } catch(e){}
+    if (!sess || !sess.user) {
+      window._salvarSortimentoAposLogin = true;
+      const overlay = document.getElementById('authOverlay');
+      if (overlay) overlay.style.display = 'flex';
+      toast('Faça login para salvar o sortimento (ele será salvo sozinho após entrar).', 'error');
+      return;
+    }
   }
   const id = _sortimentoId();
   // Descontinuados manuais + coleções ocultas (codificadas com prefixo __COL__: no mesmo campo)
@@ -6961,11 +6964,12 @@ async function salvarSortimentoAtivo() {
     toast(`✅ Sortimento ativo salvo para ${id}. Será carregado automaticamente.`, 'success');
   } catch (e) {
     const msg = String(e.message || e);
-    if (/row-level security|RLS|not authenticated|JWT/i.test(msg)) {
-      window._salvarSortimentoAposLogin = true;
-      const overlay = document.getElementById('authOverlay');
-      if (overlay) overlay.style.display = 'flex';
-      toast('Sua sessão expirou. Faça login novamente — o sortimento será salvo em seguida.', 'error');
+    // IMPORTANTE: aqui o usuário JÁ está logado (a sessão foi checada acima).
+    // Se ainda assim o RLS recusa, o problema é a POLÍTICA da tabela, não a sessão —
+    // então NÃO reabrimos o login (isso causava loop). Mostramos erro claro.
+    if (/row-level security|RLS|not authenticated|JWT|permission denied/i.test(msg)) {
+      toast('Sem permissão para gravar na tabela "sortimento" no Supabase. É preciso liberar INSERT/UPDATE para usuários autenticados (política RLS). Veja o SQL que te passei.', 'error');
+      console.error('RLS sortimento:', msg);
     } else {
       toast('Erro ao salvar sortimento: ' + msg, 'error');
     }
@@ -7106,7 +7110,7 @@ function aplicarSessao(session) {
     // Se o usuário pediu "Salvar sortimento" antes de logar, salva agora
     if (window._salvarSortimentoAposLogin) {
       window._salvarSortimentoAposLogin = false;
-      setTimeout(() => salvarSortimentoAtivo(), 300);
+      setTimeout(() => salvarSortimentoAtivo(true), 400);   // sessão já válida aqui
     }
   } else {
     // Sem sessão: só força o overlay quando o login é obrigatório (nuvem/embutido).

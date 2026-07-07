@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v37 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v38 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -7043,9 +7043,8 @@ async function initAuth() {
   }
 }
 
-// ── INDICADOR DE SESSÃO ───────────────────────────────────────
+// ── INDICADOR DE SESSÃO (apenas informativo — o Supabase renova o token sozinho) ──
 let _sessionTimer = null;
-let _sessionRefreshing = false;
 
 async function atualizarIndicadorSessao() {
   const dot = document.getElementById('sessionDot');
@@ -7056,35 +7055,22 @@ async function atualizarIndicadorSessao() {
   if (sess && sess.user) {
     const exp = sess.expires_at ? sess.expires_at * 1000 : 0;
     const restMin = exp ? Math.floor((exp - Date.now()) / 60000) : null;
-
-    if (restMin !== null && restMin <= 0) {
-      // Expirada → tenta renovar silenciosamente
-      dot.style.background = '#f59e0b';
-      label.textContent = 'Renovando sessão…';
-      label.style.color = '#fde68a';
-      if (!_sessionRefreshing) {
-        _sessionRefreshing = true;
-        try { await window.supabase.auth.refreshSession(); } catch(e){}
-        _sessionRefreshing = false;
-      }
-      return;
+    const expirando = (restMin !== null && restMin < 0);
+    const perto     = (restMin !== null && restMin >= 0 && restMin <= 5);
+    dot.style.background = (perto || expirando) ? '#f59e0b' : '#22c55e';
+    label.style.color    = (perto || expirando) ? '#fde68a' : 'rgba(255,255,255,0.85)';
+    if (expirando) {
+      // NÃO força refresh aqui (o Supabase renova sozinho); só sinaliza
+      label.textContent = 'Sessão ativa · renovando…';
+    } else {
+      label.textContent = restMin !== null
+        ? `Sessão ativa · expira em ${restMin >= 60 ? Math.floor(restMin/60)+'h'+(restMin%60?(restMin%60)+'min':'') : restMin+' min'}`
+        : 'Sessão ativa';
     }
-    if (restMin !== null && restMin <= 5 && !_sessionRefreshing) {
-      // Perto de expirar → renova proativamente (evita erro de RLS ao salvar)
-      _sessionRefreshing = true;
-      try { await window.supabase.auth.refreshSession(); } catch(e){}
-      _sessionRefreshing = false;
-    }
-    const perto = (restMin !== null && restMin <= 5);
-    dot.style.background = perto ? '#f59e0b' : '#22c55e';
-    label.style.color = perto ? '#fde68a' : 'rgba(255,255,255,0.85)';
-    label.textContent = restMin !== null
-      ? `Sessão ativa · expira em ${restMin >= 60 ? Math.floor(restMin/60)+'h'+(restMin%60?(restMin%60)+'min':'') : restMin+' min'}`
-      : 'Sessão ativa';
   } else {
     dot.style.background = '#ef4444';
-    label.style.color = '#fecaca';
-    label.textContent = 'Sem sessão · clique para entrar';
+    label.style.color    = '#fecaca';
+    label.textContent    = 'Sem sessão · clique para entrar';
   }
 }
 

@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v44 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v45 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1178,9 +1178,15 @@
         <table id="gradeTable">
           <thead>
             <tr>
-              <th style="width:36px;text-align:center;" title="Marcar/desmarcar todos os produtos visíveis (desmarcar = descontinuar)">
-                <input type="checkbox" id="chkSelecionarTodos" checked onchange="toggleTodosProdutos(this.checked)"
-                  style="width:16px;height:16px;cursor:pointer;accent-color:#059669;" title="Marcar/desmarcar todos os produtos visíveis">
+              <th style="width:46px;text-align:center;position:relative;" title="Ações em massa nos produtos visíveis">
+                <button onclick="event.stopPropagation(); toggleMenuTodos()" id="btnMenuTodos" title="Marcar todos como ativos ou descontinuar todos (respeita a busca)"
+                  style="background:none;border:none;cursor:pointer;color:#fff;display:inline-flex;align-items:center;gap:2px;font-family:'Barlow',sans-serif;">
+                  <span id="chkTodosGlyph" style="font-size:15px;line-height:1;">☑</span><span style="font-size:9px;">▾</span>
+                </button>
+                <div id="menuTodos" onclick="event.stopPropagation();" style="display:none;position:absolute;top:calc(100% + 4px);left:2px;z-index:60;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 12px 30px rgba(0,0,0,0.2);min-width:230px;text-align:left;overflow:hidden;">
+                  <button onclick="toggleMenuTodos(); toggleTodosProdutos(true);" style="display:block;width:100%;text-align:left;padding:11px 14px;border:none;background:#fff;cursor:pointer;font-size:12.5px;color:#065f46;font-weight:700;">✅ Ativar todos (projetar)</button>
+                  <button onclick="toggleMenuTodos(); toggleTodosProdutos(false);" style="display:block;width:100%;text-align:left;padding:11px 14px;border:none;background:#fff;cursor:pointer;font-size:12.5px;color:#991b1b;font-weight:700;border-top:1px solid #f1f5f9;">⛔ Descontinuar todos</button>
+                </div>
               </th>
               <th style="width:30px;"></th>
               <th>Opção (Família + Cor)</th>
@@ -4478,13 +4484,15 @@ function doRenderGradeTab() {
 
   window._gradeData = linhasGrade;
 
-  // Sincroniza o checkbox "marcar todos" do cabeçalho com o estado atual
-  const chkTodos = document.getElementById('chkSelecionarTodos');
-  if (chkTodos) {
+  // Sincroniza o glifo do menu "todos" com o estado atual dos visíveis
+  const glyph = document.getElementById('chkTodosGlyph');
+  if (glyph) {
     const visiveis = gruposArr.filter(g => !(typeof _colecaoExcluida === 'function' && _colecaoExcluida(g.nome_familia + '|||' + g.desc_cor)));
     const desat = visiveis.filter(g => window._opcoesDesativadas && window._opcoesDesativadas.has(g.nome_familia + '|||' + g.desc_cor)).length;
-    chkTodos.checked = (visiveis.length > 0 && desat === 0);
-    chkTodos.indeterminate = (desat > 0 && desat < visiveis.length);
+    if (!visiveis.length)            glyph.textContent = '☐';
+    else if (desat === 0)            glyph.textContent = '☑';   // todos ativos
+    else if (desat === visiveis.length) glyph.textContent = '☐'; // todos descontinuados
+    else                             glyph.textContent = '▣';   // misto
   }
 
   // Restaura estado de expansão dos grupos (mapeando por família+cor)
@@ -5306,23 +5314,43 @@ function toggleOpcaoAtiva(familia, cor, ativa) {
   aplicarDescontinuadosERecalcular();
 }
 
+// Abre/fecha o menu de ações em massa do cabeçalho
+function toggleMenuTodos() {
+  const m = document.getElementById('menuTodos');
+  if (!m) return;
+  m.style.display = (m.style.display === 'block') ? 'none' : 'block';
+}
+// Fecha o menu ao clicar fora
+document.addEventListener('click', (e) => {
+  const m = document.getElementById('menuTodos');
+  const b = document.getElementById('btnMenuTodos');
+  if (m && m.style.display === 'block' && b && !b.contains(e.target) && !m.contains(e.target)) {
+    m.style.display = 'none';
+  }
+});
+
 // Marca/desmarca TODOS os produtos visíveis (respeita o filtro de busca).
 // Desmarcar = descontinuar todos; marcar = reativar todos.
 function toggleTodosProdutos(marcar) {
   if (!window._opcoesDesativadas) window._opcoesDesativadas = new Set();
   const headers = document.querySelectorAll('#gradeBody tr.grade-grupo-header');
-  let mudou = 0;
+  let visiveis = 0, mudou = 0;
   headers.forEach(tr => {
     if (tr.style.display === 'none') return;      // respeita o filtro de busca
     const key = tr.dataset.opKey;
     if (!key) return;
+    visiveis++;
     if (marcar) {
       if (window._opcoesDesativadas.has(key)) { window._opcoesDesativadas.delete(key); mudou++; }
     } else {
       if (!window._opcoesDesativadas.has(key)) { window._opcoesDesativadas.add(key); mudou++; }
     }
   });
-  if (!mudou) { toast(marcar ? 'Todos já estão ativos.' : 'Todos já estão descontinuados.', 'success'); return; }
+  if (visiveis === 0) {
+    toast('Nenhum produto visível. Se ocultou coleções, marque ao menos uma no filtro 🏷️ Coleções (ou limpe a busca).', 'error');
+    return;
+  }
+  if (!mudou) { toast(marcar ? 'Todos os visíveis já estão ativos.' : 'Todos os visíveis já estão descontinuados.', 'success'); return; }
   aplicarDescontinuadosERecalcular();
   if (typeof atualizarBotaoDescontinuados === 'function') atualizarBotaoDescontinuados();
   toast(marcar ? `${mudou} produto(s) reativado(s).` : `${mudou} produto(s) descontinuado(s) (vão vender o estoque de forma decrescente).`, 'success');

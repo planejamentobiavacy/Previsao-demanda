@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v51 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v52 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1276,10 +1276,15 @@
     </div>
     <div style="padding:20px 22px;">
       <p style="font-size:12.5px;color:#475569;margin:0 0 12px;">Este produto tem pouco histórico. Escolha de qual produto ele deve <strong>herdar a sazonalidade</strong> (a curva de picos/vales ao longo do ano). O share próprio dele é mantido; só o padrão sazonal vem do espelho.</p>
-      <select id="espelhoPickerSelect" style="width:100%;padding:9px 12px;border:1.5px solid #c4b5fd;border-radius:6px;font-size:13px;font-family:'Barlow',sans-serif;outline:none;background:#fff;"></select>
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
-        <button onclick="fecharEspelhoModal()" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Cancelar</button>
-        <button onclick="confirmarEspelho()" style="background:#6d28d9;border:none;color:#fff;padding:8px 18px;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;">Aplicar e recalcular</button>
+      <input type="text" id="espelhoBusca" placeholder="🔍 Buscar produto (família ou cor)..." oninput="filtrarEspelhoLista()"
+        style="width:100%;padding:9px 12px;border:1.5px solid #c4b5fd;border-radius:6px;font-size:13px;font-family:'Barlow',sans-serif;outline:none;background:#fff;margin-bottom:8px;box-sizing:border-box;">
+      <div id="espelhoLista" style="max-height:300px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;">
+        <div id="espelhoSelecionadoLabel" style="font-size:11.5px;color:#6d28d9;font-weight:700;"></div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="fecharEspelhoModal()" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Cancelar</button>
+          <button onclick="confirmarEspelho()" style="background:#6d28d9;border:none;color:#fff;padding:8px 18px;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;">Aplicar e recalcular</button>
+        </div>
       </div>
     </div>
   </div>
@@ -5149,14 +5154,67 @@ function abrirEspelhoPicker(familia, cor) {
   });
   const cands = Object.keys(vistos).map(k => Object.assign({ key: k }, vistos[k]));
   cands.sort((a,b) => (b.mesmaFam - a.mesmaFam) || (b.hist - a.hist) || a.familia.localeCompare(b.familia));
-  const atual = (window._espelhoManual && window._espelhoManual[opk]) || 'AUTO';
-  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-  const opts = ['<option value="AUTO"' + (atual === 'AUTO' ? ' selected' : '') + '>🤖 Automático (mesma família, mais histórico)</option>']
-    .concat(cands.map(c => `<option value="${esc(c.key)}"${atual === c.key ? ' selected' : ''}>${c.mesmaFam ? '⭐ ' : ''}${esc(c.familia)} · ${esc(c.cor)} (${c.hist} meses de histórico)</option>`));
-  document.getElementById('espelhoPickerTitulo').textContent = familia + ' · ' + cor;
-  document.getElementById('espelhoPickerSelect').innerHTML = opts.join('');
+
   window._espelhoPickerAlvo = opk;
+  window._espelhoCandidatos = cands;
+  window._espelhoEscolhido = (window._espelhoManual && window._espelhoManual[opk]) || 'AUTO';
+  document.getElementById('espelhoPickerTitulo').textContent = familia + ' · ' + cor;
+  const busca = document.getElementById('espelhoBusca');
+  if (busca) busca.value = '';
+  renderEspelhoLista('');
   document.getElementById('espelhoModal').style.display = 'block';
+  if (busca) setTimeout(() => busca.focus(), 50);
+}
+
+function renderEspelhoLista(termo) {
+  const lista = document.getElementById('espelhoLista');
+  if (!lista) return;
+  const cands = window._espelhoCandidatos || [];
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  const t = (termo || '').trim().toLowerCase();
+  const filtrados = t ? cands.filter(c => (c.familia + ' ' + c.cor).toLowerCase().includes(t)) : cands;
+  const escolhido = window._espelhoEscolhido || 'AUTO';
+
+  const linhaItem = (val, texto, sub, destaque) => {
+    const sel = (escolhido === val);
+    return `<div onclick="selecionarEspelho('${esc(val)}')" style="padding:9px 12px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px;${sel ? 'background:#ede9fe;' : 'background:#fff;'}" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background='${sel ? '#ede9fe' : '#fff'}'">
+      <span style="color:#1e293b;${destaque ? 'font-weight:700;' : ''}">${texto}</span>
+      <span style="color:#94a3b8;font-size:11px;white-space:nowrap;">${sub}${sel ? ' ✓' : ''}</span>
+    </div>`;
+  };
+
+  let html = '';
+  // "Automático" sempre no topo (aparece se não filtrar ou se casar com "auto")
+  if (!t || 'automatico automático auto'.includes(t)) {
+    html += linhaItem('AUTO', '🤖 Automático', 'mesma família, mais histórico', false);
+  }
+  if (!filtrados.length && t) {
+    html += '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px;">Nenhum produto encontrado para "' + esc(termo) + '"</div>';
+  } else {
+    html += filtrados.map(c => linhaItem(
+      c.key,
+      (c.mesmaFam ? '⭐ ' : '') + c.familia + ' · ' + c.cor,
+      c.hist + ' meses',
+      c.mesmaFam
+    )).join('');
+  }
+  lista.innerHTML = html;
+  const lbl = document.getElementById('espelhoSelecionadoLabel');
+  if (lbl) {
+    if (escolhido === 'AUTO') lbl.textContent = 'Selecionado: 🤖 Automático';
+    else lbl.textContent = 'Selecionado: ' + escolhido.split('|||').join(' · ');
+  }
+}
+
+function filtrarEspelhoLista() {
+  const busca = document.getElementById('espelhoBusca');
+  renderEspelhoLista(busca ? busca.value : '');
+}
+
+function selecionarEspelho(val) {
+  window._espelhoEscolhido = val;
+  const busca = document.getElementById('espelhoBusca');
+  renderEspelhoLista(busca ? busca.value : '');
 }
 
 function fecharEspelhoModal() {
@@ -5167,7 +5225,7 @@ function fecharEspelhoModal() {
 function confirmarEspelho() {
   const opk = window._espelhoPickerAlvo;
   if (!opk) { fecharEspelhoModal(); return; }
-  const val = document.getElementById('espelhoPickerSelect').value;
+  const val = window._espelhoEscolhido || 'AUTO';
   if (!window._espelhoManual) window._espelhoManual = {};
   if (val === 'AUTO') delete window._espelhoManual[opk];
   else window._espelhoManual[opk] = val;

@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v34 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v35 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1224,7 +1224,7 @@
 </main>
 
 <!-- MODAL HISTÓRICO -->
-<div id="histModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(15,30,61,0.55);backdrop-filter:blur(3px);" onclick="if(event.target===this)closeHist()">
+<div id="histModal" style="display:none;position:fixed;inset:0;z-index:9200;background:rgba(15,30,61,0.55);backdrop-filter:blur(3px);" onclick="if(event.target===this)closeHist()">
   <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;width:min(1400px,97vw);max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
     <!-- header modal -->
     <div style="background:var(--accent);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
@@ -5111,6 +5111,9 @@ function renderDescontinuados() {
 
   const body = document.getElementById('descontinuadosBody');
   const fmtInt = n => Number(Math.round(n)).toLocaleString('pt-BR');
+  const forn  = (window._exportData && window._exportData.forn)  || '';
+  const marca = (window._exportData && window._exportData.marca) || '';
+  const escJs = s => String(s).replace(/'/g,"\\'");
   if (!itens.length) {
     body.innerHTML = '<div style="padding:24px;text-align:center;color:#64748b;">Nenhum produto descontinuado no momento.</div>';
     return;
@@ -5120,18 +5123,21 @@ function renderDescontinuados() {
     + '<button onclick="reativarTodosDescontinuados()" style="background:#ecfdf5;border:1px solid #a7f3d0;color:#047857;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">↩ Reativar todos</button>'
     + '</div>'
     + '<table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;">'
-    + '<colgroup><col style="width:36px;"><col><col style="width:110px;"><col style="width:95px;"><col style="width:130px;"><col style="width:110px;"></colgroup>'
+    + '<colgroup><col style="width:36px;"><col><col style="width:100px;"><col style="width:85px;"><col style="width:120px;"><col style="width:220px;"></colgroup>'
     + '<thead><tr style="text-align:left;color:#64748b;font-size:11px;letter-spacing:0.5px;border-bottom:2px solid #e5e7eb;">'
     + '<th style="padding:8px 10px;">#</th><th style="padding:8px 10px;">Produto (família · cor)</th>'
     + '<th style="padding:8px 10px;">Coleção</th><th style="padding:8px 10px;">Últ. mês</th>'
-    + '<th style="padding:8px 10px;text-align:right;">Venda hist. (CX)</th><th style="padding:8px 10px;"></th></tr></thead><tbody>'
+    + '<th style="padding:8px 10px;text-align:right;">Venda hist. (CX)</th><th style="padding:8px 10px;text-align:right;">Ações</th></tr></thead><tbody>'
     + itens.map((it, i) => `<tr style="border-bottom:1px solid #f1f5f9;">
         <td style="padding:8px 10px;color:#94a3b8;">${i+1}</td>
         <td style="padding:8px 10px;word-break:break-word;"><strong>${it.familia}</strong> <span style="color:#64748b;">· ${it.cor}</span></td>
         <td style="padding:8px 10px;color:#64748b;font-size:12px;word-break:break-word;">${it.colecao}</td>
         <td style="padding:8px 10px;color:#64748b;font-size:12px;">${fmtAM(it.ultimoMes)}</td>
         <td style="padding:8px 10px;text-align:right;font-weight:700;color:#1e293b;">${fmtInt(it.venda)}</td>
-        <td style="padding:8px 10px;text-align:right;"><button onclick="reativarDescontinuado('${it.familia.replace(/'/g,"\\'")}','${it.cor.replace(/'/g,"\\'")}')" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">↩ Reativar</button></td>
+        <td style="padding:8px 10px;text-align:right;white-space:nowrap;">
+          <button onclick="showHist('${escJs(it.familia)}','${escJs(it.cor)}','${escJs(forn)}','${escJs(marca)}')" title="Ver gráfico com a curva de esgotamento do estoque" style="background:#f5f3ff;border:1px solid #ddd6fe;color:#6d28d9;padding:4px 9px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;margin-right:5px;">📈 Gráfico</button>
+          <button onclick="reativarDescontinuado('${escJs(it.familia)}','${escJs(it.cor)}')" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">↩ Reativar</button>
+        </td>
       </tr>`).join('')
     + '</tbody></table>';
 }

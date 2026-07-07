@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v39 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v42 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1252,6 +1252,24 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- MODAL ESCOLHER ESPELHO -->
+<div id="espelhoModal" style="display:none;position:fixed;inset:0;z-index:9300;background:rgba(15,30,61,0.55);backdrop-filter:blur(3px);" onclick="if(event.target===this)fecharEspelhoModal()">
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;width:min(560px,94vw);box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
+    <div style="background:#6d28d9;padding:16px 22px;">
+      <div style="color:#fff;font-weight:800;font-size:15px;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.5px;">🪞 Escolher produto-espelho</div>
+      <div style="color:rgba(255,255,255,0.7);font-size:11px;margin-top:2px;" id="espelhoPickerTitulo"></div>
+    </div>
+    <div style="padding:20px 22px;">
+      <p style="font-size:12.5px;color:#475569;margin:0 0 12px;">Este produto tem pouco histórico. Escolha de qual produto ele deve <strong>herdar a sazonalidade</strong> (a curva de picos/vales ao longo do ano). O share próprio dele é mantido; só o padrão sazonal vem do espelho.</p>
+      <select id="espelhoPickerSelect" style="width:100%;padding:9px 12px;border:1.5px solid #c4b5fd;border-radius:6px;font-size:13px;font-family:'Barlow',sans-serif;outline:none;background:#fff;"></select>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+        <button onclick="fecharEspelhoModal()" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Cancelar</button>
+        <button onclick="confirmarEspelho()" style="background:#6d28d9;border:none;color:#fff;padding:8px 18px;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;">Aplicar e recalcular</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL PRODUTOS DESCONTINUADOS -->
 <div id="descontinuadosModal" style="display:none;position:fixed;inset:0;z-index:9100;background:rgba(15,30,61,0.55);backdrop-filter:blur(3px);" onclick="if(event.target===this)fecharDescontinuados()">
@@ -3041,36 +3059,53 @@ function calcularTodos() {
       r.wOpcao = wOpcao; r.wFamilia = wFamilia; r.wCor = wCor; r.wCategoria = wCategoria;
     });
 
-    // PRODUTO NOVO SEM HISTÓRICO SAZONAL → herda o índice de um "ESPELHO":
-    // o produto da MESMA FAMÍLIA (outra cor) com mais histórico e com dados
-    // no mês projetado. Melhor que cair na média da marca, pois preserva o
-    // comportamento sazonal do segmento do produto.
+    // PRODUTO COM POUCO HISTÓRICO → herda o índice sazonal de um "ESPELHO".
+    // Por padrão o espelho é automático (mesma família, mais histórico, com dados
+    // no mês). O usuário pode ESCOLHER manualmente o espelho (window._espelhoManual).
     if (sazAtiva) {
       if (!window._espelhoPorOpcao) window._espelhoPorOpcao = {};
+      if (!window._espelhoManual)   window._espelhoManual = {};
       const mesProjNum = parseInt(anomes.substring(4,6));
       rows.forEach(r => {
-        if (!r._sazUsouFallback) return;                    // já tem índice próprio
-        if ((r.totalMesesComShare || 0) > 4) return;        // só produtos com pouco histórico
-        let esp = null, espMeses = 0;
-        rows.forEach(o => {
-          if (o === r || o.nome_familia !== r.nome_familia) return;
-          const kO = o.nome_familia + '|||' + o.desc_cor;
-          const nOc = (ocorrenciasMesProduto[kO] && ocorrenciasMesProduto[kO][mesProjNum]) || 0;
-          if (nOc <= 0) return;
-          if ((o.totalMesesComShare || 0) > espMeses) { esp = o; espMeses = o.totalMesesComShare || 0; }
-        });
-        if (!esp || espMeses < 4) return;                   // sem espelho confiável
-        const kEsp = esp.nome_familia + '|||' + esp.desc_cor;
+        const opk = r.nome_familia + '|||' + r.desc_cor;
+        const escolha = window._espelhoManual[opk];   // opKey do espelho, ou undefined/'AUTO'
+        const poucoHist = (r.totalMesesComShare || 0) <= 4;
+        // Só atua em produtos de pouco histórico (ou quando há escolha manual explícita)
+        if (!poucoHist && !(escolha && escolha !== 'AUTO')) return;
+
+        let kEsp = null, espCor = null, manual = false;
+        if (escolha && escolha !== 'AUTO') {
+          // Espelho escolhido manualmente
+          kEsp = escolha;
+          espCor = escolha.split('|||')[1];
+          manual = true;
+        } else {
+          // Automático: só quando falta índice próprio no mês
+          if (!r._sazUsouFallback) return;
+          let esp = null, espMeses = 0;
+          rows.forEach(o => {
+            if (o === r || o.nome_familia !== r.nome_familia) return;
+            const kO = o.nome_familia + '|||' + o.desc_cor;
+            const nOc = (ocorrenciasMesProduto[kO] && ocorrenciasMesProduto[kO][mesProjNum]) || 0;
+            if (nOc <= 0) return;
+            if ((o.totalMesesComShare || 0) > espMeses) { esp = o; espMeses = o.totalMesesComShare || 0; }
+          });
+          if (!esp || espMeses < 4) return;                 // sem espelho confiável
+          kEsp = esp.nome_familia + '|||' + esp.desc_cor;
+          espCor = esp.desc_cor;
+        }
+        if (!kEsp) return;
         const indiceBaseEsp = (indiceSazonalProduto[kEsp] && indiceSazonalProduto[kEsp][mesProjNum]) || 1;
         let indiceSazEsp = 1 + (indiceBaseEsp - 1) * sazForca;
         if (indiceSazEsp < 0) indiceSazEsp = 0;
-        r.indiceSazonal   = indiceSazEsp;
-        r._sazUsouEspelho = true;
-        r._espelhoCor     = esp.desc_cor;
-        r.shareAjustado   = (r.shareMedio || 0) * indiceSazEsp * (r._fatorTendencia || 1);
-        r.partFinal       = r.shareAjustado;
-        r.qtdProj         = Math.round(r.shareAjustado * vendaT);
-        window._espelhoPorOpcao[r.nome_familia + '|||' + r.desc_cor] = esp.desc_cor;
+        r.indiceSazonal    = indiceSazEsp;
+        r._sazUsouEspelho  = true;
+        r._espelhoManualFlag = manual;
+        r._espelhoCor      = espCor;
+        r.shareAjustado    = (r.shareMedio || 0) * indiceSazEsp * (r._fatorTendencia || 1);
+        r.partFinal        = r.shareAjustado;
+        r.qtdProj          = Math.round(r.shareAjustado * vendaT);
+        window._espelhoPorOpcao[opk] = espCor + (manual ? ' (manual)' : '');
       });
     }
 
@@ -3310,91 +3345,118 @@ function _proxMes(anomes) {
   return String(y).padStart(4,'0') + String(m).padStart(2,'0');
 }
 
-// REGRA DE NEGÓCIO: no PRIMEIRO mês projetado (imediatamente após o fim
-// dos dados), a demanda é restringida pela oferta disponível:
-//   • estoque > 0  → projeção limitada a no máximo 70% do último estoque;
-//   • estoque = 0  → projeção zerada (a demanda só volta a ser calculada
-//                    no mês seguinte).
-// O volume cortado dos produtos restritos é REDISTRIBUÍDO pelos produtos
-// SEM restrição (com folga até o limite de 70%), na proporção do share,
-// para que o total do mês volte a bater a meta setada.
-// Respeita travas manuais. Só se aplica quando há base de estoque carregada.
+// REGRA DE NEGÓCIO — restrição de oferta + rampa de recuperação:
+//  • 1º mês projetado: estoque > 0 → limita a 70% do último estoque;
+//                      estoque = 0 → zera (item em RUPTURA).
+//  • Itens que ficaram em ruptura NÃO saltam do zero direto pra demanda cheia:
+//    nos meses seguintes sobem em CURVA CRESCENTE (rampa) até a demanda ideal.
+//    Ex.: rampa [0.5] → 0 → 50% → 100% da demanda ideal.
+//  • Em cada mês, o volume cortado é REDISTRIBUÍDO pelos produtos livres, por share,
+//    para o total do mês bater a meta. Respeita travas manuais / descontinuados.
+// Só se aplica quando há base de estoque carregada.
 function aplicarLimiteEstoquePrimeiroMes(allRows) {
   if (!_gradesCache) buildGradesCache();
   if (!_ultimoMesStkCache) return;                 // sem base de estoque → sem regra
   if (!allRows || !allRows.length) return;
-  // Primeiro mês projetado = menor anomes entre as linhas projetadas
-  let primeiroMes = null;
-  allRows.forEach(r => { if (!primeiroMes || r.anomes < primeiroMes) primeiroMes = r.anomes; });
-  if (!primeiroMes) return;
 
-  const linhas = allRows.filter(r => r.anomes === primeiroMes);
-  // Alvo do mês = soma da projeção ANTES da trava (o total normalizado/setado)
-  const alvoMes = linhas.reduce((s, r) => s + (r.qtdProj || 0), 0);
+  // Meses projetados em ordem cronológica
+  const mesesOrd = [...new Set(allRows.map(r => r.anomes))].sort();
+  if (!mesesOrd.length) return;
 
-  let deficit = 0;               // volume cortado dos restritos, a redistribuir
-  const livres = [];             // produtos com estoque e folga (podem receber)
+  // Rampa de recuperação após a ruptura (fatores da demanda ideal, mês a mês)
+  const rampa = (Array.isArray(window._rampaRuptura) && window._rampaRuptura.length)
+    ? window._rampaRuptura : [0.5];
 
-  linhas.forEach(r => {
-    if (r._ajusteManual) return;                   // respeita travas manuais
-    if (r._descontinuado || r._colExcluido) return; // sell-out chumbado / coleção oculta: não mexe
-    const estoque = getEstoqueAtual(r.nome_familia, r.desc_cor);
-    r._qtdProjSemLimite = r.qtdProj;
-    r._estoqueLimite    = estoque;
-    if (estoque <= 0) {
-      // Sem estoque → primeiro mês zerado; demanda só a partir do mês seguinte
-      r._zeradoEstoque   = true;
-      r._limitadoEstoque = false;
-      r._limiteMax       = 0;
-      deficit += r.qtdProj;
-      r.qtdProj          = 0;
-      return;
-    }
-    const limite = Math.round(estoque * 0.70);
-    r._zeradoEstoque = false;
-    r._limiteMax     = limite;
-    if (r.qtdProj > limite) {
-      // Restrito: corta para 70% do estoque
-      r._limitadoEstoque = true;
-      deficit += (r.qtdProj - limite);
-      r.qtdProj          = limite;
-    } else {
-      // Sem restrição: tem folga até o limite → elegível para receber
-      r._limitadoEstoque = false;
-      const folga = limite - r.qtdProj;
-      if (folga > 0) livres.push({ r, folga });
-    }
-  });
+  const emRuptura = new Set();   // opKeys que ficaram zerados no 1º mês
 
-  // Redistribui o déficit pelos produtos livres, na proporção do share,
-  // sem estourar a folga de cada um (water-filling em algumas passadas)
-  if (deficit > 0.5 && livres.length) {
-    let restante = deficit;
-    for (let iter = 0; iter < 25 && restante > 0.5; iter++) {
-      const elegiveis = livres.filter(x => x.folga > 0.5);
-      if (!elegiveis.length) break;
-      const somaPeso = elegiveis.reduce((s, x) => s + (x.r.shareMedio || x.r.qtdProj || 0), 0);
-      if (somaPeso <= 0) break;
-      let distribuido = 0;
-      elegiveis.forEach(x => {
-        const peso = (x.r.shareMedio || x.r.qtdProj || 0) / somaPeso;
-        let add = restante * peso;
-        if (add > x.folga) add = x.folga;
-        x.r.qtdProj += add;
-        x.folga     -= add;
-        distribuido += add;
-      });
-      restante -= distribuido;
-      if (distribuido < 0.5) break;               // não deu pra distribuir mais
-    }
-    livres.forEach(x => {
-      x.r.qtdProj = Math.round(x.r.qtdProj);
-      if (x.r.qtdProj > x.r._qtdProjSemLimite) x.r._recebeuRedistribuicao = true;
+  mesesOrd.forEach((anomes, mi) => {
+    const linhas = allRows.filter(r => r.anomes === anomes);
+    const alvoMes = linhas.reduce((s, r) => s + (r.qtdProj || 0), 0);
+
+    let deficit = 0;
+    const livres = [];   // { r, folga }  (folga = Infinity nos meses 2+)
+
+    linhas.forEach(r => {
+      if (r._ajusteManual) return;                    // trava manual
+      if (r._descontinuado || r._colExcluido) return; // sell-out / coleção oculta
+      const opKey = r.nome_familia + '|||' + r.desc_cor;
+
+      if (mi === 0) {
+        // 1º mês: restrição pela oferta atual
+        const estoque = getEstoqueAtual(r.nome_familia, r.desc_cor);
+        r._qtdProjSemLimite = r.qtdProj;
+        r._estoqueLimite    = estoque;
+        r._rampaRuptura     = null;
+        if (estoque <= 0) {
+          r._zeradoEstoque = true; r._limitadoEstoque = false; r._limiteMax = 0;
+          deficit += r.qtdProj; r.qtdProj = 0;
+          emRuptura.add(opKey);
+          return;
+        }
+        const limite = Math.round(estoque * 0.70);
+        r._zeradoEstoque = false; r._limiteMax = limite;
+        if (r.qtdProj > limite) {
+          r._limitadoEstoque = true;
+          deficit += (r.qtdProj - limite);
+          r.qtdProj = limite;
+        } else {
+          r._limitadoEstoque = false;
+          const folga = limite - r.qtdProj;
+          if (folga > 0) livres.push({ r, folga });
+        }
+      } else {
+        // Meses seguintes: rampa crescente só para quem ficou em ruptura
+        if (emRuptura.has(opKey)) {
+          const fator = (rampa[mi - 1] !== undefined) ? rampa[mi - 1] : 1;
+          if (fator < 1) {
+            const ideal = r.qtdProj;
+            const novo  = Math.round(ideal * fator);
+            r._qtdProjSemLimite = ideal;
+            r._rampaRuptura     = fator;
+            r._zeradoEstoque    = false;
+            r._limitadoEstoque  = false;
+            deficit += (ideal - novo);
+            r.qtdProj = novo;
+          } else {
+            // já recuperou (fator ≥ 1) → volta a ser produto normal
+            r._rampaRuptura = null;
+            livres.push({ r, folga: Infinity });
+          }
+        } else {
+          livres.push({ r, folga: Infinity });
+        }
+      }
     });
-  }
 
-  // Recalcula participação (partFinal) das linhas do 1º mês com base no alvo
-  linhas.forEach(r => { r.partFinal = alvoMes > 0 ? (r.qtdProj / alvoMes) : 0; });
+    // Redistribui o déficit pelos livres, por share, sem estourar a folga
+    if (deficit > 0.5 && livres.length) {
+      let restante = deficit;
+      for (let iter = 0; iter < 25 && restante > 0.5; iter++) {
+        const elegiveis = livres.filter(x => x.folga > 0.5);
+        if (!elegiveis.length) break;
+        const somaPeso = elegiveis.reduce((s, x) => s + (x.r.shareMedio || x.r.qtdProj || 0), 0);
+        if (somaPeso <= 0) break;
+        let distribuido = 0;
+        elegiveis.forEach(x => {
+          const peso = (x.r.shareMedio || x.r.qtdProj || 0) / somaPeso;
+          let add = restante * peso;
+          if (add > x.folga) add = x.folga;
+          x.r.qtdProj += add;
+          x.folga     -= add;
+          distribuido += add;
+        });
+        restante -= distribuido;
+        if (distribuido < 0.5) break;
+      }
+      livres.forEach(x => {
+        x.r.qtdProj = Math.round(x.r.qtdProj);
+        if (x.r._qtdProjSemLimite != null && x.r.qtdProj > x.r._qtdProjSemLimite) x.r._recebeuRedistribuicao = true;
+      });
+    }
+
+    // Recalcula participação (partFinal) das linhas do mês
+    linhas.forEach(r => { r.partFinal = alvoMes > 0 ? (r.qtdProj / alvoMes) : 0; });
+  });
 }
 
 // Lead time do fornecedor (dias entre pedido e chegada). ALPARG = 45 dias.
@@ -4327,7 +4389,7 @@ function doRenderGradeTab() {
   const fmtAM  = m => `${m.substring(4,6)}/${m.substring(0,4)}`;
 
   const tbody = document.getElementById('gradeBody');
-  tbody.innerHTML = gruposArr.map((g, idx) => {
+  const _bodyHtml = gruposArr.map((g, idx) => {
     const opKey = `grupo-${idx}`;
     const opKeyClean = g.nome_familia + '|||' + g.desc_cor;
     // Produtos de coleção oculta não aparecem na lista (ficam fora da projeção)
@@ -4350,8 +4412,8 @@ function doRenderGradeTab() {
         <span style="${dimName}"> · ${g.desc_cor}</span>
         ${emSellout ? '<span title="Produto descontinuado — vendendo o estoque de forma decrescente até esgotar. Estes valores ficam chumbados e o restante do mês é redistribuído entre os ativos." style="margin-left:8px;background:#f59e0b;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">⏳ ESGOTANDO ESTOQUE</span>' : ''}
         ${strike ? '<span style="margin-left:8px;background:#dc2626;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;">DESCONTINUADO</span>' : ''}
-        ${(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean]) ? `<span title="Um ou mais meses projetados não têm histórico próprio deste produto — usando sazonalidade da MARCA como referência. Revise se aplicável." style="margin-left:8px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #fde68a;cursor:help;">⚠️ SAZ. MARCA (${[...new Set(window._fallbackPorOpcao[opKeyClean].meses)].map(am => am.substring(4,6)+'/'+am.substring(2,4)).join(', ')})</span>` : ''}
-        ${(window._espelhoPorOpcao && window._espelhoPorOpcao[opKeyClean]) ? `<span title="Produto com pouco histórico — sazonalidade herdada do produto ESPELHO da mesma família: ${String(window._espelhoPorOpcao[opKeyClean]).replace(/"/g,'&quot;')}" style="margin-left:8px;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #ddd6fe;cursor:help;">🪞 ESPELHO</span>` : ''}
+        ${(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean]) ? `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Um ou mais meses projetados não têm histórico próprio deste produto — usando sazonalidade da MARCA. Clique para escolher um produto-espelho." style="margin-left:8px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #fde68a;cursor:pointer;">⚠️ SAZ. MARCA (${[...new Set(window._fallbackPorOpcao[opKeyClean].meses)].map(am => am.substring(4,6)+'/'+am.substring(2,4)).join(', ')}) 🪞</span>` : ''}
+        ${(window._espelhoPorOpcao && window._espelhoPorOpcao[opKeyClean]) ? `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Sazonalidade herdada do produto-espelho: ${String(window._espelhoPorOpcao[opKeyClean]).replace(/"/g,'&quot;')}. Clique para trocar." style="margin-left:8px;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #ddd6fe;cursor:pointer;">🪞 ESPELHO: ${String(window._espelhoPorOpcao[opKeyClean]).toUpperCase().replace(/"/g,'&quot;')}</span>` : ''}
       </td>
       <td style="font-size:11.5px;color:#64748b;${dimTxt}">${(window._colecaoPorProduto && window._colecaoPorProduto[opKeyClean]) ? window._colecaoPorProduto[opKeyClean] : '—'}</td>
       <td class="right"><span class="badge badge-success" style="${strike ? 'background:#e2e8f0;color:#94a3b8;text-decoration:line-through;' : (emSellout ? 'background:#fef3c7;color:#b45309;' : '')}">${fmtInt(g.projOpcao)} CX</span></td>
@@ -4398,7 +4460,20 @@ function doRenderGradeTab() {
     return headerRow + gradesRows;
   }).join('');
 
-    window._gradeData = linhasGrade;
+  // Estado vazio: nenhum produto visível (ex.: todas as coleções ocultas)
+  if (!_bodyHtml.trim()) {
+    const totalOcultas = (window._colecoesDesativadas && window._colecoesDesativadas.size) || 0;
+    tbody.innerHTML = `<tr><td colspan="8" style="padding:40px 24px;text-align:center;color:#64748b;">
+      <div style="font-size:15px;font-weight:700;color:#334155;margin-bottom:6px;">Nenhum produto para exibir</div>
+      <div style="font-size:13px;">${totalOcultas > 0
+        ? `Você ocultou <strong>${totalOcultas}</strong> coleção(ões). Abra o filtro <strong>🏷️ Coleções</strong> e marque ao menos uma para ver os produtos.`
+        : 'Ajuste os filtros para ver os produtos.'}</div>
+    </td></tr>`;
+  } else {
+    tbody.innerHTML = _bodyHtml;
+  }
+
+  window._gradeData = linhasGrade;
 
   // Restaura estado de expansão dos grupos (mapeando por família+cor)
   if (window._expandidosGradePorProduto && window._expandidosGradePorProduto.size > 0) {
@@ -5005,6 +5080,51 @@ function _colecaoExcluida(opKey) {
   return col ? window._colecoesDesativadas.has(col) : false;
 }
 
+// ── ESCOLHA MANUAL DO PRODUTO-ESPELHO ─────────────────────────
+function abrirEspelhoPicker(familia, cor) {
+  const opk = familia + '|||' + cor;
+  const allRows = (window._exportData && window._exportData.allRows) || [];
+  // Candidatos: opções com histórico suficiente (≥4 meses), exceto o próprio
+  const vistos = {};
+  allRows.forEach(r => {
+    const k = r.nome_familia + '|||' + r.desc_cor;
+    if (k === opk) return;
+    const h = r.totalMesesComShare || 0;
+    if (h < 4) return;
+    if (!vistos[k] || h > vistos[k].hist) {
+      vistos[k] = { familia: r.nome_familia, cor: r.desc_cor, hist: h, mesmaFam: r.nome_familia === familia };
+    }
+  });
+  const cands = Object.keys(vistos).map(k => Object.assign({ key: k }, vistos[k]));
+  cands.sort((a,b) => (b.mesmaFam - a.mesmaFam) || (b.hist - a.hist) || a.familia.localeCompare(b.familia));
+  const atual = (window._espelhoManual && window._espelhoManual[opk]) || 'AUTO';
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const opts = ['<option value="AUTO"' + (atual === 'AUTO' ? ' selected' : '') + '>🤖 Automático (mesma família, mais histórico)</option>']
+    .concat(cands.map(c => `<option value="${esc(c.key)}"${atual === c.key ? ' selected' : ''}>${c.mesmaFam ? '⭐ ' : ''}${esc(c.familia)} · ${esc(c.cor)} (${c.hist} meses de histórico)</option>`));
+  document.getElementById('espelhoPickerTitulo').textContent = familia + ' · ' + cor;
+  document.getElementById('espelhoPickerSelect').innerHTML = opts.join('');
+  window._espelhoPickerAlvo = opk;
+  document.getElementById('espelhoModal').style.display = 'block';
+}
+
+function fecharEspelhoModal() {
+  const m = document.getElementById('espelhoModal');
+  if (m) m.style.display = 'none';
+}
+
+function confirmarEspelho() {
+  const opk = window._espelhoPickerAlvo;
+  if (!opk) { fecharEspelhoModal(); return; }
+  const val = document.getElementById('espelhoPickerSelect').value;
+  if (!window._espelhoManual) window._espelhoManual = {};
+  if (val === 'AUTO') delete window._espelhoManual[opk];
+  else window._espelhoManual[opk] = val;
+  fecharEspelhoModal();
+  toast('Espelho atualizado — recalculando…', 'success');
+  setTimeout(() => { if (typeof calcularTodos === 'function') calcularTodos(); }, 60);
+}
+
+
 function toggleColecao(nome, ativa) {
   if (!window._colecaoPorProduto) _buildColecaoPorProduto();
   if (ativa) window._colecoesDesativadas.delete(nome);
@@ -5022,6 +5142,8 @@ function marcarTodasColecoes(ativa) {
   });
   aplicarDescontinuadosERecalcular();
   renderColecaoFilter();
+  const dd = document.getElementById('colecaoDropdown');
+  if (dd) dd.style.display = 'block';   // mantém o painel aberto para continuar selecionando
   atualizarBotaoColecao();
 }
 

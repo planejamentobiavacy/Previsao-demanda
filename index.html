@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v50 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v51 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1242,6 +1242,9 @@
         <div style="color:rgba(255,255,255,0.65);font-size:11px;margin-top:2px;" id="histSubtitle"></div>
       </div>
       <div style="display:flex;gap:8px;">
+        <button onclick="abrirEspelhoDoGrafico()" id="btnEspelhoProd" title="Escolher de qual produto herdar a sazonalidade (útil p/ produtos com pouco histórico)" style="background:rgba(255,255,255,0.15);border:none;color:#fff;height:30px;padding:0 14px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700;font-family:'Barlow',sans-serif;display:flex;align-items:center;gap:5px;letter-spacing:0.5px;">
+          🪞 Espelho
+        </button>
         <button onclick="toggleDescontinuarAtual()" id="btnDescontinuarProd" style="background:rgba(255,255,255,0.15);border:none;color:#fff;height:30px;padding:0 14px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700;font-family:'Barlow',sans-serif;display:flex;align-items:center;gap:5px;letter-spacing:0.5px;">
           ⛔ Descontinuar
         </button>
@@ -5122,6 +5125,13 @@ function _colecaoExcluida(opKey) {
   return col ? window._colecoesDesativadas.has(col) : false;
 }
 
+// Abre o seletor de espelho para o produto atualmente aberto no gráfico
+function abrirEspelhoDoGrafico() {
+  const ctx = window._currentProductCtx;
+  if (!ctx) { toast('Abra o gráfico de um produto primeiro.', 'error'); return; }
+  abrirEspelhoPicker(ctx.familia, ctx.cor);
+}
+
 // ── ESCOLHA MANUAL DO PRODUTO-ESPELHO ─────────────────────────
 function abrirEspelhoPicker(familia, cor) {
   const opk = familia + '|||' + cor;
@@ -5163,7 +5173,13 @@ function confirmarEspelho() {
   else window._espelhoManual[opk] = val;
   fecharEspelhoModal();
   toast('Espelho atualizado — recalculando…', 'success');
-  setTimeout(() => { if (typeof calcularTodos === 'function') calcularTodos(); }, 60);
+  const histAberto = document.getElementById('histModal') && document.getElementById('histModal').style.display === 'block';
+  const ctx = window._currentProductCtx;
+  setTimeout(() => {
+    if (typeof calcularTodos === 'function') calcularTodos();
+    // Redesenha o gráfico com o novo espelho, se estava aberto
+    if (histAberto && ctx) setTimeout(() => showHist(ctx.familia, ctx.cor, ctx.forn, ctx.marca), 120);
+  }, 60);
 }
 
 

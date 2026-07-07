@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v42 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v44 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1178,7 +1178,10 @@
         <table id="gradeTable">
           <thead>
             <tr>
-              <th style="width:36px;text-align:center;" title="Ativo (projetar)"><span style="font-size:14px;">✓</span></th>
+              <th style="width:36px;text-align:center;" title="Marcar/desmarcar todos os produtos visíveis (desmarcar = descontinuar)">
+                <input type="checkbox" id="chkSelecionarTodos" checked onchange="toggleTodosProdutos(this.checked)"
+                  style="width:16px;height:16px;cursor:pointer;accent-color:#059669;" title="Marcar/desmarcar todos os produtos visíveis">
+              </th>
               <th style="width:30px;"></th>
               <th>Opção (Família + Cor)</th>
               <th>Coleção</th>
@@ -4475,6 +4478,15 @@ function doRenderGradeTab() {
 
   window._gradeData = linhasGrade;
 
+  // Sincroniza o checkbox "marcar todos" do cabeçalho com o estado atual
+  const chkTodos = document.getElementById('chkSelecionarTodos');
+  if (chkTodos) {
+    const visiveis = gruposArr.filter(g => !(typeof _colecaoExcluida === 'function' && _colecaoExcluida(g.nome_familia + '|||' + g.desc_cor)));
+    const desat = visiveis.filter(g => window._opcoesDesativadas && window._opcoesDesativadas.has(g.nome_familia + '|||' + g.desc_cor)).length;
+    chkTodos.checked = (visiveis.length > 0 && desat === 0);
+    chkTodos.indeterminate = (desat > 0 && desat < visiveis.length);
+  }
+
   // Restaura estado de expansão dos grupos (mapeando por família+cor)
   if (window._expandidosGradePorProduto && window._expandidosGradePorProduto.size > 0) {
     gruposArr.forEach((g, idx) => {
@@ -5292,6 +5304,28 @@ function toggleOpcaoAtiva(familia, cor, ativa) {
   }
   // Reaplica lógica de descontinuados nas allRows + recalcula redistribuindo entre ativos
   aplicarDescontinuadosERecalcular();
+}
+
+// Marca/desmarca TODOS os produtos visíveis (respeita o filtro de busca).
+// Desmarcar = descontinuar todos; marcar = reativar todos.
+function toggleTodosProdutos(marcar) {
+  if (!window._opcoesDesativadas) window._opcoesDesativadas = new Set();
+  const headers = document.querySelectorAll('#gradeBody tr.grade-grupo-header');
+  let mudou = 0;
+  headers.forEach(tr => {
+    if (tr.style.display === 'none') return;      // respeita o filtro de busca
+    const key = tr.dataset.opKey;
+    if (!key) return;
+    if (marcar) {
+      if (window._opcoesDesativadas.has(key)) { window._opcoesDesativadas.delete(key); mudou++; }
+    } else {
+      if (!window._opcoesDesativadas.has(key)) { window._opcoesDesativadas.add(key); mudou++; }
+    }
+  });
+  if (!mudou) { toast(marcar ? 'Todos já estão ativos.' : 'Todos já estão descontinuados.', 'success'); return; }
+  aplicarDescontinuadosERecalcular();
+  if (typeof atualizarBotaoDescontinuados === 'function') atualizarBotaoDescontinuados();
+  toast(marcar ? `${mudou} produto(s) reativado(s).` : `${mudou} produto(s) descontinuado(s) (vão vender o estoque de forma decrescente).`, 'success');
 }
 
 function toggleGradeAtiva(familia, cor, grade, ativa) {
@@ -6126,11 +6160,12 @@ function toggleDescontinuarAtual() {
   const key = ctx.familia + '|||' + ctx.cor;
   const estaDesat = window._opcoesDesativadas && window._opcoesDesativadas.has(key);
   // Se está desativado → reativa (true); se ativo → desativa (false)
-  toggleOpcaoAtiva(ctx.familia, ctx.cor, estaDesat);
-  atualizarBotaoDescontinuar();
+  toggleOpcaoAtiva(ctx.familia, ctx.cor, estaDesat);   // recalcula allRows (sell-out + redistribuição)
   toast(estaDesat
     ? `${ctx.familia} · ${ctx.cor} reativado.`
-    : `${ctx.familia} · ${ctx.cor} descontinuado — não será projetado (volume redistribuído).`, 'success');
+    : `${ctx.familia} · ${ctx.cor} descontinuado — projeção vira venda de esgotamento (decrescente até zerar o estoque).`, 'success');
+  // Redesenha o gráfico já com os ajustes aplicados (curva de sell-out ou volta ao normal)
+  setTimeout(() => showHist(ctx.familia, ctx.cor, ctx.forn, ctx.marca), 20);
 }
 
 function atualizarBotaoDescontinuar() {

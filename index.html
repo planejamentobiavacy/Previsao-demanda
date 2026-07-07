@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v48 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v49 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -4308,8 +4308,10 @@ function doRenderGradeTab() {
   window._fallbackPorOpcao = fallbackPorOpcao;
 
   // Pega TODAS as opcoes do allRows (mesmo as que não têm grade vinculada)
+  // e também os DESCONTINUADOS mesmo com projeção 0, para que continuem visíveis (riscados)
   Object.keys(projOpcaoTotal).forEach(k => {
-    if (projOpcaoTotal[k] > 0 && !gruposView[k]) {
+    const ehDescontinuado = window._opcoesDesativadas && window._opcoesDesativadas.has(k);
+    if ((projOpcaoTotal[k] > 0 || ehDescontinuado) && !gruposView[k]) {
       const parts = k.split('|||');
       gruposView[k] = {
         nome_familia: parts[0],
@@ -5062,11 +5064,29 @@ function _colecoesDisponiveis() {
 
 function toggleColecaoDropdown() {
   const dd = document.getElementById('colecaoDropdown');
+  const btn = document.getElementById('btnColecao');
   if (!dd) return;
   if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
   renderColecaoFilter();
+  // Posição fixa a partir do botão, para não ser cortado pelo overflow da tabela
+  if (btn) {
+    const r = btn.getBoundingClientRect();
+    dd.style.position = 'fixed';
+    dd.style.top   = (r.bottom + 6) + 'px';
+    dd.style.right = (window.innerWidth - r.right) + 'px';
+    dd.style.left  = 'auto';
+    dd.style.zIndex = '9500';
+  }
   dd.style.display = 'block';
 }
+// Fecha o dropdown de coleções ao clicar fora
+document.addEventListener('click', (e) => {
+  const dd = document.getElementById('colecaoDropdown');
+  const btn = document.getElementById('btnColecao');
+  if (dd && dd.style.display === 'block' && btn && !btn.contains(e.target) && !dd.contains(e.target)) {
+    dd.style.display = 'none';
+  }
+});
 
 function renderColecaoFilter() {
   const dd = document.getElementById('colecaoDropdown');

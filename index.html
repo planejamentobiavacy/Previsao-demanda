@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v46 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v47 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1183,10 +1183,6 @@
                   style="background:none;border:none;cursor:pointer;color:#fff;display:inline-flex;align-items:center;gap:2px;font-family:'Barlow',sans-serif;">
                   <span id="chkTodosGlyph" style="font-size:15px;line-height:1;">☑</span><span style="font-size:9px;">▾</span>
                 </button>
-                <div id="menuTodos" onclick="event.stopPropagation();" style="display:none;position:fixed;z-index:9500;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 12px 30px rgba(0,0,0,0.2);min-width:230px;text-align:left;overflow:hidden;">
-                  <button onclick="toggleMenuTodos(); toggleTodosProdutos(true);" style="display:block;width:100%;text-align:left;padding:11px 14px;border:none;background:#fff;cursor:pointer;font-size:12.5px;color:#065f46;font-weight:700;">✅ Ativar todos (projetar)</button>
-                  <button onclick="toggleMenuTodos(); toggleTodosProdutos(false);" style="display:block;width:100%;text-align:left;padding:11px 14px;border:none;background:#fff;cursor:pointer;font-size:12.5px;color:#991b1b;font-weight:700;border-top:1px solid #f1f5f9;">⛔ Descontinuar todos</button>
-                </div>
               </th>
               <th style="width:30px;"></th>
               <th>Opção (Família + Cor)</th>
@@ -1261,6 +1257,12 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- MENU DE AÇÕES EM MASSA (nível body, para não sofrer recorte/herança da tabela) -->
+<div id="menuTodos" onclick="event.stopPropagation();" style="display:none;position:fixed;z-index:9500;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 12px 30px rgba(0,0,0,0.22);min-width:240px;text-align:left;overflow:hidden;">
+  <button onclick="toggleMenuTodos(); toggleTodosProdutos(true);" style="display:block;width:100%;text-align:left;padding:12px 16px;border:none;background:#fff;cursor:pointer;font-size:13px;color:#065f46;font-weight:700;font-family:'Barlow',sans-serif;">✅ Ativar todos (projetar)</button>
+  <button onclick="toggleMenuTodos(); toggleTodosProdutos(false);" style="display:block;width:100%;text-align:left;padding:12px 16px;border:none;background:#fff;cursor:pointer;font-size:13px;color:#991b1b;font-weight:700;font-family:'Barlow',sans-serif;border-top:1px solid #f1f5f9;">⛔ Descontinuar todos</button>
+</div>
 
 <!-- MODAL ESCOLHER ESPELHO -->
 <div id="espelhoModal" style="display:none;position:fixed;inset:0;z-index:9300;background:rgba(15,30,61,0.55);backdrop-filter:blur(3px);" onclick="if(event.target===this)fecharEspelhoModal()">

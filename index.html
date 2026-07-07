@@ -970,6 +970,10 @@
     <div class="step-dot" id="dot2"></div>
     <div class="step-dot" id="dot3"></div>
   </div>
+  <div id="sessionStatus" onclick="_sessionStatusClick()" title="Estado da sessão com o servidor (Supabase). Clique para entrar se estiver sem sessão." style="display:flex;align-items:center;gap:6px;margin-left:16px;cursor:pointer;font-size:11px;font-weight:700;color:rgba(255,255,255,0.85);white-space:nowrap;">
+    <span id="sessionDot" style="width:9px;height:9px;border-radius:50%;background:#94a3b8;display:inline-block;flex-shrink:0;"></span>
+    <span id="sessionLabel">—</span>
+  </div>
   <div id="userChip" style="display:none;align-items:center;gap:10px;margin-left:16px;">
     <span id="userEmail" style="color:rgba(255,255,255,0.85);font-size:12px;font-weight:600;"></span>
     <button onclick="fazerLogout()" title="Sair" style="background:rgba(255,255,255,0.15);border:none;color:#fff;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700;font-family:'Barlow',sans-serif;">Sair</button>
@@ -984,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v36 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v37 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -7039,6 +7043,65 @@ async function initAuth() {
   }
 }
 
+// ── INDICADOR DE SESSÃO ───────────────────────────────────────
+let _sessionTimer = null;
+let _sessionRefreshing = false;
+
+async function atualizarIndicadorSessao() {
+  const dot = document.getElementById('sessionDot');
+  const label = document.getElementById('sessionLabel');
+  if (!dot || !label) return;
+  let sess = null;
+  try { sess = window.supabase && (await window.supabase.auth.getSession()).data.session; } catch(e){}
+  if (sess && sess.user) {
+    const exp = sess.expires_at ? sess.expires_at * 1000 : 0;
+    const restMin = exp ? Math.floor((exp - Date.now()) / 60000) : null;
+
+    if (restMin !== null && restMin <= 0) {
+      // Expirada → tenta renovar silenciosamente
+      dot.style.background = '#f59e0b';
+      label.textContent = 'Renovando sessão…';
+      label.style.color = '#fde68a';
+      if (!_sessionRefreshing) {
+        _sessionRefreshing = true;
+        try { await window.supabase.auth.refreshSession(); } catch(e){}
+        _sessionRefreshing = false;
+      }
+      return;
+    }
+    if (restMin !== null && restMin <= 5 && !_sessionRefreshing) {
+      // Perto de expirar → renova proativamente (evita erro de RLS ao salvar)
+      _sessionRefreshing = true;
+      try { await window.supabase.auth.refreshSession(); } catch(e){}
+      _sessionRefreshing = false;
+    }
+    const perto = (restMin !== null && restMin <= 5);
+    dot.style.background = perto ? '#f59e0b' : '#22c55e';
+    label.style.color = perto ? '#fde68a' : 'rgba(255,255,255,0.85)';
+    label.textContent = restMin !== null
+      ? `Sessão ativa · expira em ${restMin >= 60 ? Math.floor(restMin/60)+'h'+(restMin%60?(restMin%60)+'min':'') : restMin+' min'}`
+      : 'Sessão ativa';
+  } else {
+    dot.style.background = '#ef4444';
+    label.style.color = '#fecaca';
+    label.textContent = 'Sem sessão · clique para entrar';
+  }
+}
+
+function _sessionStatusClick() {
+  (async () => {
+    let sess = null;
+    try { sess = window.supabase && (await window.supabase.auth.getSession()).data.session; } catch(e){}
+    if (!sess || !sess.user) {
+      const o = document.getElementById('authOverlay');
+      if (o) o.style.display = 'flex';
+    } else {
+      atualizarIndicadorSessao();
+      toast('Sessão ativa.', 'success');
+    }
+  })();
+}
+
 function aplicarSessao(session) {
   const overlay = document.getElementById('authOverlay');
   const chip    = document.getElementById('userChip');
@@ -7064,6 +7127,11 @@ function aplicarSessao(session) {
     // Localmente o overlay fica escondido, mas pode ser aberto ao clicar em "Publicar base".
     if (overlay) overlay.style.display = window._precisaLogin ? 'flex' : 'none';
     if (chip) chip.style.display = 'none';
+  }
+  // Atualiza o indicador de sessão e garante o timer periódico
+  if (typeof atualizarIndicadorSessao === 'function') {
+    atualizarIndicadorSessao();
+    if (!_sessionTimer) _sessionTimer = setInterval(atualizarIndicadorSessao, 30000);
   }
 }
 

@@ -984,7 +984,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v35 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v36 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -6932,6 +6932,16 @@ function _sortimentoId() {
 async function salvarSortimentoAtivo() {
   if (!_supaOk()) return;
   if (!window._exportData) { toast('Calcule a projeção primeiro.', 'error'); return; }
+  // A tabela exige usuário logado (RLS). Se não houver sessão, abre o login e salva depois.
+  let sess = null;
+  try { sess = (await window.supabase.auth.getSession()).data.session; } catch(e){}
+  if (!sess || !sess.user) {
+    window._salvarSortimentoAposLogin = true;
+    const overlay = document.getElementById('authOverlay');
+    if (overlay) overlay.style.display = 'flex';
+    toast('Faça login para salvar o sortimento (ele será salvo sozinho após entrar).', 'error');
+    return;
+  }
   const id = _sortimentoId();
   // Descontinuados manuais + coleções ocultas (codificadas com prefixo __COL__: no mesmo campo)
   const opcoes = [
@@ -6946,7 +6956,15 @@ async function salvarSortimentoAtivo() {
     if (error) throw error;
     toast(`✅ Sortimento ativo salvo para ${id}. Será carregado automaticamente.`, 'success');
   } catch (e) {
-    toast('Erro ao salvar sortimento: ' + (e.message || e), 'error');
+    const msg = String(e.message || e);
+    if (/row-level security|RLS|not authenticated|JWT/i.test(msg)) {
+      window._salvarSortimentoAposLogin = true;
+      const overlay = document.getElementById('authOverlay');
+      if (overlay) overlay.style.display = 'flex';
+      toast('Sua sessão expirou. Faça login novamente — o sortimento será salvo em seguida.', 'error');
+    } else {
+      toast('Erro ao salvar sortimento: ' + msg, 'error');
+    }
   }
 }
 
@@ -7035,6 +7053,11 @@ function aplicarSessao(session) {
     if (window._publicarAposLogin) {
       window._publicarAposLogin = false;
       setTimeout(() => publicarBase(document.getElementById('btnPublicarBase')), 300);
+    }
+    // Se o usuário pediu "Salvar sortimento" antes de logar, salva agora
+    if (window._salvarSortimentoAposLogin) {
+      window._salvarSortimentoAposLogin = false;
+      setTimeout(() => salvarSortimentoAtivo(), 300);
     }
   } else {
     // Sem sessão: só força o overlay quando o login é obrigatório (nuvem/embutido).

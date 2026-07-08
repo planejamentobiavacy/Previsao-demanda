@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v54 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v55 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1079,7 +1079,8 @@
       <span class="title-icon">⚙️</span>
       <h2>Configurar Projeção</h2>
       <span class="step-tag">Step 02 / 03</span>
-      <button class="btn btn-secondary" onclick="abrirCenario()" style="margin-left:auto;border-color:#7c3aed;color:#7c3aed;font-size:12px;">📂 Abrir cenário</button>
+      <button class="btn btn-secondary" onclick="salvarParametrizacao()" style="margin-left:auto;border-color:#2563eb;color:#2563eb;font-size:12px;" title="Salva fornecedor, marca, meses e venda projetada (pares). Estado vivo, compartilhado.">💾 Salvar parametrização</button>
+      <button class="btn btn-secondary" onclick="abrirCenario()" style="border-color:#7c3aed;color:#7c3aed;font-size:12px;">📂 Abrir cenário</button>
     </div>
 
     <div class="params-card">
@@ -1136,7 +1137,6 @@
         </button>
       </div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
-        <button class="btn btn-secondary" onclick="salvarParametrizacao()" style="border-color:#2563eb;color:#2563eb;font-size:12px;" title="Salva fornecedor, marca, meses e venda projetada (pares). Estado vivo, compartilhado.">💾 Salvar parametrização</button>
         <button class="btn btn-secondary" onclick="salvarSortimentoAtivo()" style="border-color:#0891b2;color:#0891b2;font-size:12px;" title="Salva descontinuados, coleções ocultas, espelho, grades e ajustes de demanda. Estado vivo, sempre aplicado.">🏷️ Salvar sortimento</button>
         <button class="btn btn-secondary" onclick="salvarCenario()" style="border-color:#059669;color:#059669;font-size:12px;" title="Salva uma versão NOMEADA e congelada (snapshot da parametrização).">📌 Salvar cenário</button>
         <button class="btn btn-secondary" onclick="abrirCenario()" style="border-color:#7c3aed;color:#7c3aed;font-size:12px;">📂 Abrir cenário</button>

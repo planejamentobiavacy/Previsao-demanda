@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v59 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v60 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1188,6 +1188,7 @@
           </div>
           <button id="btnDescontinuados" onclick="abrirDescontinuados()" title="Ver todos os produtos descontinuados, ordenados por venda histórica" style="background:#fff;border:1.5px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">⛔ Descontinuados</button>
           <button id="btnFiltroFallback" onclick="toggleFiltroFallback()" title="Mostrar só produtos que projetam com sazonalidade da marca (sem histórico próprio do mês)" style="background:#fef3c7;border:1.5px solid #fde68a;color:#92400e;padding:8px 12px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">⚠️ Só Saz. Marca</button>
+          <button id="btnFiltroNovos" onclick="toggleFiltroNovos()" title="Mostrar só os produtos NOVOS da Carteira Alpa (sem histórico)" style="background:#f0fdf4;border:1.5px solid #86efac;color:#166534;padding:8px 12px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">🆕 Novos</button>
           <button class="btn btn-secondary" onclick="goStep(2)" style="font-size:12px;">← Ajustar</button>
           <button class="btn btn-success" onclick="exportGradeCSV()">⬇ Exportar CSV</button>
         </div>
@@ -4785,6 +4786,14 @@ function doRenderGradeTab() {
     else                             glyph.textContent = '▣';   // misto
   }
 
+  // Mostra o botão "🆕 Novos" só quando há produtos novos da carteira
+  const btnNovos = document.getElementById('btnFiltroNovos');
+  if (btnNovos) {
+    const nNovos = window._carteiraNovos ? Object.keys(window._carteiraNovos).length : 0;
+    btnNovos.style.display = nNovos > 0 ? '' : 'none';
+    if (nNovos > 0 && !window._filtroNovosAtivo) btnNovos.textContent = `🆕 Novos (${nNovos})`;
+  }
+
   // Restaura estado de expansão dos grupos (mapeando por família+cor)
   if (window._expandidosGradePorProduto && window._expandidosGradePorProduto.size > 0) {
     gruposArr.forEach((g, idx) => {
@@ -5894,6 +5903,51 @@ function aplicarDescontinuadosERecalcular() {
 
 // ── FILTRO DE PESQUISA ────────────────────────────────────────
 let _filtroFallbackAtivo = false;
+function toggleFiltroNovos() {
+  window._filtroNovosAtivo = !window._filtroNovosAtivo;
+  const btn = document.getElementById('btnFiltroNovos');
+  if (btn) {
+    if (window._filtroNovosAtivo) {
+      btn.style.background = '#16a34a';
+      btn.style.color = '#fff';
+      btn.textContent = '✓ Novos';
+    } else {
+      btn.style.background = '#f0fdf4';
+      btn.style.color = '#166534';
+      btn.textContent = '🆕 Novos';
+    }
+  }
+  aplicarFiltroNovos();
+}
+
+function aplicarFiltroNovos() {
+  const rows = document.querySelectorAll('#gradeBody tr.grade-grupo-header');
+  const novos = window._carteiraNovos || {};
+  let visiveis = 0;
+  rows.forEach(tr => {
+    const opKey = tr.dataset.opKey;
+    if (!window._filtroNovosAtivo) {
+      tr.style.display = '';
+      const iconEl = tr.querySelector('[id$="-icon"]');
+      if (iconEl) {
+        const grupoKey = iconEl.id.replace('-icon','');
+        document.querySelectorAll('.grade-row-' + grupoKey).forEach(gr => gr.style.display = 'none');
+        iconEl.textContent = '▶';
+      }
+    } else {
+      const ehNovo = opKey && novos[opKey];
+      tr.style.display = ehNovo ? '' : 'none';
+      if (ehNovo) visiveis++;
+    }
+  });
+  const infoEl = document.getElementById('gradeSearchInfo');
+  if (window._filtroNovosAtivo && infoEl) {
+    infoEl.textContent = `${visiveis} produto(s) novo(s) da carteira`;
+  } else if (infoEl) {
+    infoEl.textContent = '';
+  }
+}
+
 function toggleFiltroFallback() {
   _filtroFallbackAtivo = !_filtroFallbackAtivo;
   const btn = document.getElementById('btnFiltroFallback');

@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v62 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v63 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1628,7 +1628,7 @@ function _cartSheetData(wb) {
   for (const nome of nomes) {
     const ws = wb.Sheets[nome];
     if (!ws) continue;
-    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false, cellDates: true });
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: true, cellDates: false });
     for (let i = 0; i < Math.min(aoa.length, 60); i++) {
       const row = (aoa[i] || []).map(norm);
       const temDun   = row.some(c => c === 'DUN');
@@ -1669,7 +1669,7 @@ function handleCarteiraFile(file) {
         data = parseCSV(linhas.slice(hdr).join('\n'));
       } else {
         const arr = new Uint8Array(e.target.result);
-        const wb = XLSX.read(arr, { type:'array', cellDates:true, cellNF:false, cellHTML:false });
+        const wb = XLSX.read(arr, { type:'array', cellDates:false, cellNF:false, cellHTML:false });
         data = _cartSheetData(wb);
         if (!data) {
           // fallback: primeira aba, achando a linha com DUN
@@ -6302,8 +6302,8 @@ function showHist(familia, cor, forn, marca) {
     window._exportData.allRows
       .filter(r => r.nome_familia === familia && r.desc_cor === cor)
       .forEach(r => {
-        // Cada linha já é única por nome_familia+desc_cor+anomes — não acumula
-        projMap[r.anomes] = r.qtdProj;
+        // Normais têm 1 linha por mês; a CARTEIRA injeta várias (por DUN) → soma
+        projMap[r.anomes] = (projMap[r.anomes] || 0) + r.qtdProj;
         if (r._limitadoEstoque) limitadoMap[r.anomes] = { orig: r._qtdProjSemLimite, estoque: r._estoqueLimite, tipo: 'limite' };
         else if (r._zeradoEstoque) limitadoMap[r.anomes] = { orig: r._qtdProjSemLimite, estoque: 0, tipo: 'zero' };
       });
@@ -6751,9 +6751,9 @@ function buildInfoPanelHTML() {
   const ctx = window._currentProductCtx;
   let mesesDisponiveis = [];
   if (ctx && window._exportData?.allRows) {
-    mesesDisponiveis = window._exportData.allRows
+    mesesDisponiveis = [...new Set(window._exportData.allRows
       .filter(row => row.nome_familia === ctx.familia && row.desc_cor === ctx.cor)
-      .map(row => row.anomes)
+      .map(row => row.anomes))]
       .sort();
   }
 
@@ -6789,6 +6789,59 @@ function buildInfoPanelHTML() {
   ` : '';
 
   window._infoSeletorMesHTML = seletorMes;
+
+  // ── PAINEL ESPECÍFICO PARA PRODUTO NOVO DA CARTEIRA ──
+  if (r._novoCarteira) {
+    const opk = ctx.familia + '|||' + ctx.cor;
+    const o = (window._carteiraNovos || {})[opk];
+    const fmtI = n => Math.round(n).toLocaleString('pt-BR');
+    const fmtAMx = m => `${m.substring(4,6)}/${m.substring(0,4)}`;
+    const gradesMes = (o && o.gradesPorMes[mesSel]) || {};
+    const paresMes = (o && o.porMes[mesSel]) || 0;
+    const linhasDun = Object.keys(gradesMes).sort().map(dun => `
+      <tr>
+        <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-size:12px;">${dun}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;text-align:right;">${fmtI(gradesMes[dun])} pares</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;text-align:right;color:#16a34a;font-weight:700;">${fmtI(gradesMes[dun]/12)} CX</td>
+      </tr>`).join('');
+    const totalTodosMeses = o ? Object.values(o.porMes).reduce((s,v)=>s+v,0) : 0;
+    return `
+      ${seletorMes}
+      <div style="padding:8px 4px 24px;">
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-left:4px solid #16a34a;border-radius:8px;padding:16px 18px;margin-bottom:18px;">
+          <div style="font-weight:800;color:#166534;font-size:14px;margin-bottom:6px;">🆕 Produto novo da Carteira Alpa</div>
+          <div style="font-size:12.5px;color:#15803d;line-height:1.6;">
+            Este produto <strong>não tem histórico de vendas</strong> (o DUN não existe na base). Por isso ele
+            <strong>não passa pelo modelo</strong> de share/sazonalidade/outliers. A projeção vem <strong>direto da carteira</strong>:
+            a soma de <strong>"Saldo a Faturar"</strong> (em pares) agrupada pelo <strong>mês da "Previsão faturamento"</strong>.
+            A conversão para caixas é <strong>pares ÷ 12</strong>.
+          </div>
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px;">
+          <div style="flex:1;min-width:180px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">CARTEIRA EM ${fmtAMx(mesSel)}</div>
+            <div style="font-size:22px;font-weight:800;color:#16a34a;margin-top:4px;">${fmtI(paresMes)} pares</div>
+            <div style="font-size:13px;color:#166534;">= ${fmtI(paresMes/12)} CX projetadas</div>
+          </div>
+          <div style="flex:1;min-width:180px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
+            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">TOTAL NA CARTEIRA (TODOS OS MESES)</div>
+            <div style="font-size:22px;font-weight:800;color:#0f172a;margin-top:4px;">${fmtI(totalTodosMeses)} pares</div>
+            <div style="font-size:13px;color:#475569;">= ${fmtI(totalTodosMeses/12)} CX · ${o ? o.duns.size : 0} grade(s)/DUN</div>
+          </div>
+        </div>
+        <div style="font-size:12px;font-weight:800;color:#334155;letter-spacing:0.5px;margin-bottom:8px;">DETALHE POR DUN — ${fmtAMx(mesSel)}</div>
+        <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+          <thead>
+            <tr style="background:#f8fafc;">
+              <th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;letter-spacing:0.5px;">DUN</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;color:#64748b;letter-spacing:0.5px;">SALDO A FATURAR</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;color:#64748b;letter-spacing:0.5px;">EM CX</th>
+            </tr>
+          </thead>
+          <tbody>${linhasDun || '<tr><td colspan="3" style="padding:14px;text-align:center;color:#94a3b8;">Sem carteira neste mês.</td></tr>'}</tbody>
+        </table>
+      </div>`;
+  }
 
   const fmt    = n => Number(n).toLocaleString('pt-BR', {maximumFractionDigits:2});
   const fmtInt = n => Math.round(n).toLocaleString('pt-BR');

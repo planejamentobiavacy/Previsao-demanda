@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v61 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v62 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1077,6 +1077,11 @@
           title="Envia a base para o servidor (Supabase). Depois é só abrir a URL do GitHub — nada de gerar/subir arquivo."
           style="border-color:#0ea5e9;color:#0284c7;">
           ☁️ Publicar base
+        </button>
+        <button class="btn btn-secondary admin-only" id="btnPublicarCarteira" onclick="publicarCarteira(this)"
+          title="Atualiza SÓ a carteira na nuvem (não precisa republicar a base inteira). Útil para a atualização semanal da carteira."
+          style="border-color:#16a34a;color:#16a34a;">
+          🧾 Publicar carteira
         </button>
         <button class="btn btn-secondary admin-only" id="btnGerarFerramenta" onclick="gerarFerramenta()"
           title="(Alternativa) Gera um HTML com os dados embutidos para publicar no GitHub"
@@ -2087,6 +2092,39 @@ async function publicarBase(btn) {
   }
 }
 
+// Publica SÓ a carteira (registro separado 'carteira' em base_ativa), sem republicar a base
+async function publicarCarteira(btn) {
+  if (!carteiraData || !carteiraData.length) { toast('Suba a Carteira Alpa primeiro (seção 4 da importação).', 'error'); return; }
+  if (!_supaOk()) return;
+  let sess = null;
+  try { sess = (await window.supabase.auth.getSession()).data.session; } catch(e){}
+  if (!sess || !sess.user) {
+    const overlay = document.getElementById('authOverlay');
+    if (overlay) overlay.style.display = 'flex';
+    toast('Faça login para publicar a carteira.', 'error');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.dataset._t = btn.textContent; btn.textContent = '⏳ Publicando…'; }
+  try {
+    const gz = await _gzipToB64(JSON.stringify({ carteiraData }));
+    if (!gz) throw new Error('Navegador sem suporte a compressão.');
+    const { error } = await window.supabase.from('base_ativa').upsert({
+      id: 'carteira',
+      dados_gz: gz,
+      n_registros: carteiraData.length,
+      atualizado_em: new Date().toISOString()
+    });
+    if (error) throw error;
+    const nNovos = Object.keys(window._carteiraNovos || {}).length;
+    toast(`🧾 Carteira publicada (${carteiraData.length.toLocaleString('pt-BR')} linhas · ${nNovos} produtos novos). Já disponível na URL do GitHub.`, 'success');
+  } catch (e) {
+    console.error('publicarCarteira:', e);
+    toast('Erro ao publicar a carteira: ' + (e.message || e), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset._t || '🧾 Publicar carteira'; }
+  }
+}
+
 // Baixa a base publicada no Supabase e carrega. Usado na URL do GitHub após login.
 async function carregarBaseSupabase() {
   if (!window._supabaseReady || !window.supabase) return false;
@@ -2126,6 +2164,22 @@ async function carregarBaseSupabase() {
     });
     populateFornecedor();
     const b1 = document.getElementById('btnStep1'); if (b1) b1.disabled = false;
+
+    // Carteira Alpa: usa a embutida na base e, se houver, a carteira publicada separadamente (mais recente)
+    carteiraData = d.carteiraData || [];
+    try {
+      const rc = await window.supabase.from('base_ativa').select('dados_gz').eq('id', 'carteira').maybeSingle();
+      if (rc && rc.data && rc.data.dados_gz) {
+        const dc = JSON.parse(await _b64ToUngzip(rc.data.dados_gz));
+        if (dc && Array.isArray(dc.carteiraData)) carteiraData = dc.carteiraData;
+      }
+    } catch (e) { console.warn('carteira separada:', e); }
+    window._carteiraData = carteiraData;
+    if (typeof computeCarteiraNovos === 'function') {
+      const q = Object.keys(computeCarteiraNovos()).length;
+      if (q > 0) console.log(`Carteira: ${q} produto(s) novo(s) carregado(s).`);
+    }
+
     goStep(2);
     const quando = data.atualizado_em ? new Date(data.atualizado_em).toLocaleString('pt-BR') : '';
     toast(`✅ Base carregada do servidor (${rawData.length.toLocaleString('pt-BR')} registros${quando ? ' · atualizada em ' + quando : ''}).`, 'success');

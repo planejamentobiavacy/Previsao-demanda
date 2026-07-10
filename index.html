@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v65 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v66 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -3449,6 +3449,10 @@ function calcularTodos() {
   renderResultsMulti(allRows, { forn, marca, meses: rows_mes });
   goStep(3);
   switchTab('grade');
+  // Se há produtos novos da carteira, reponderam os históricos para o total bater o alvo da marca
+  if (window._carteiraNovos && Object.keys(window._carteiraNovos).length) {
+    try { aplicarDescontinuadosERecalcular(); } catch(e){ console.error(e); }
+  }
   // Carrega o sortimento ativo salvo (produtos/grades disponíveis) e reaplica
   setTimeout(() => { try { carregarSortimentoAtivo(); } catch(e){ console.error(e); } }, 120);
 }
@@ -3564,7 +3568,7 @@ function _mkCartRow(forn, marca, o, anomes, grade, pares, sugerido, mirror) {
     opcao: '', categoria: '', grade: String(grade), desc_grade: '',
     colecao: 'CARTEIRA', cx: 0,
     anomes,
-    qtdProj: pares / 12,          // CX equivalente (pares = CX × 12)
+    qtdProj: Math.max(0, Math.round(pares / 12)),   // CX inteiro (pares = CX × 12)
     _paresCarteira: pares,
     shareMedio: 0, shareAjustado: 0, partFinal: 0,
     indiceSazonal: 1, totalMesesComShare: 0,
@@ -3611,6 +3615,36 @@ function proximoMes(periodosArr) {
 }
 
 
+// Recalcula os cartões de resumo (total por mês, geral, SKUs) a partir das linhas atuais
+function atualizarCartoesResumo(allRows, meses) {
+  const el = document.getElementById('summaryRow');
+  if (!el) return;
+  allRows = allRows || (window._exportData && window._exportData.allRows) || [];
+  meses = meses || (window._exportData && window._exportData.meses) || [];
+  const anomesUnicos = [...new Set(allRows.map(r=>r.anomes))].sort();
+  const totalGeral = allRows.reduce((s,r)=>s+(r.qtdProj||0),0);
+  const skusComProj = [...new Set(allRows.filter(r=>r.qtdProj>0).map(r=>r.nome_familia+'|'+r.desc_cor))].length;
+  el.innerHTML = anomesUnicos.map(am => {
+    const total = allRows.filter(r=>r.anomes===am).reduce((s,r)=>s+(r.qtdProj||0),0);
+    const paresProj = total * 12;
+    return `<div class="summary-card">
+      <div class="sc-label">${am.substring(4,6)}/${am.substring(0,4)}</div>
+      <div class="sc-val" style="color:var(--accent)">${total.toLocaleString('pt-BR')} <span style="font-size:14px">CX</span></div>
+      <div class="sc-sub">${paresProj > 0 ? paresProj.toLocaleString('pt-BR') + ' pares \u2192 ' : ''}${total.toLocaleString('pt-BR')} CX projetadas</div>
+    </div>`;
+  }).join('') + `
+    <div class="summary-card" style="border-top-color:#7c3aed">
+      <div class="sc-label">Total Geral</div>
+      <div class="sc-val">${totalGeral.toLocaleString('pt-BR')} CX</div>
+      <div class="sc-sub">${anomesUnicos.length} meses projetados</div>
+    </div>
+    <div class="summary-card" style="border-top-color:#059669">
+      <div class="sc-label">SKUs \u00fanicos</div>
+      <div class="sc-val">${skusComProj}</div>
+      <div class="sc-sub">com proje\u00e7\u00e3o CX > 0</div>
+    </div>`;
+}
+
 function renderResultsMulti(allRows, { forn, marca, meses }) {
   // Identifica meses únicos
   const anomesUnicos = [...new Set(allRows.map(r=>r.anomes))].sort();
@@ -3622,31 +3656,7 @@ function renderResultsMulti(allRows, { forn, marca, meses }) {
   if (resMetaEl) resMetaEl.textContent = `${anomesUnicos.length} mês(es) projetado(s) · ${allRows.length} combinações`;
 
   // Summary cards (só renderiza se o container existir — a aba antiga foi removida)
-  const totalVendaInput = meses.reduce((s,m)=>s+m.vendaT,0);
-  const skusComProj = [...new Set(allRows.filter(r=>r.qtdProj>0).map(r=>r.nome_familia+'|'+r.desc_cor))].length;
-  const summaryRowEl = document.getElementById('summaryRow');
-  if (summaryRowEl) summaryRowEl.innerHTML = anomesUnicos.map(am => {
-    const rowsAm = allRows.filter(r=>r.anomes===am);
-    const total  = rowsAm.reduce((s,r)=>s+r.qtdProj,0);
-    const mes    = meses.find(m=>m.anomes===am);
-    const mesConf = meses.find(m=>m.anomes===am);
-    const paresProj = total * 12;   // pares equivalentes à projeção real (1 CX = 12 pares)
-    return `<div class="summary-card">
-      <div class="sc-label">${am.substring(4,6)}/${am.substring(0,4)}</div>
-      <div class="sc-val" style="color:var(--accent)">${total.toLocaleString('pt-BR')} <span style="font-size:14px">CX</span></div>
-      <div class="sc-sub">${paresProj > 0 ? paresProj.toLocaleString('pt-BR') + ' pares → ' : ''}${total.toLocaleString('pt-BR')} CX projetadas</div>
-    </div>`;
-  }).join('') + `
-    <div class="summary-card" style="border-top-color:#7c3aed">
-      <div class="sc-label">Total Geral</div>
-      <div class="sc-val">${totalGeral.toLocaleString('pt-BR')} CX</div>
-      <div class="sc-sub">${anomesUnicos.length} meses projetados</div>
-    </div>
-    <div class="summary-card" style="border-top-color:#059669">
-      <div class="sc-label">SKUs únicos</div>
-      <div class="sc-val">${skusComProj}</div>
-      <div class="sc-sub">com projeção CX > 0</div>
-    </div>`;
+  atualizarCartoesResumo(allRows, meses);
 
   // Thead dinâmico por meses (só se existir)
   const thead = document.querySelector('#resultTable thead tr');
@@ -6011,13 +6021,16 @@ function aplicarDescontinuadosERecalcular() {
       }
     });
 
-    // Valores FIXOS do mês: travas manuais + sell-out dos descontinuados
+    // Valores FIXOS do mês: travas manuais + sell-out dos descontinuados + produtos novos (carteira/espelho)
     const travados = linhasMes.filter(r => r._ajusteManual === true && !r._colExcluido && !r._descontinuado && !r._novoCarteira);
     const descont  = linhasMes.filter(r => r._descontinuado);          // já com qtdProj do sell-out
+    const carteira = linhasMes.filter(r => r._novoCarteira);           // projeção fixa da carteira/espelho
     const livres   = linhasMes.filter(r => !r._ajusteManual && !r._colExcluido && !r._descontinuado && !r.projecaoIgnorada && !r._novoCarteira);
 
     const totalFixo = travados.reduce((s,r) => s + (r.qtdProj || 0), 0)
-                    + descont.reduce((s,r) => s + (r.qtdProj || 0), 0);
+                    + descont.reduce((s,r) => s + (r.qtdProj || 0), 0)
+                    + carteira.reduce((s,r) => s + (r.qtdProj || 0), 0);
+    // O total da marca (vendaT) inclui os produtos novos → históricos são reponderados no que sobra
     const vendaRestante = Math.max(0, vendaT - totalFixo);
 
     // Redistribui o restante entre os ativos livres, proporcional ao share
@@ -6033,8 +6046,8 @@ function aplicarDescontinuadosERecalcular() {
       }
     });
 
-    // Ajuste de arredondamento (só nos livres, sem gerar negativo) — ignora carteira
-    const somaQtd = linhasMes.filter(r => !r._novoCarteira).reduce((s,r) => s + (r.qtdProj || 0), 0);
+    // Ajuste de arredondamento (só nos livres) — total do mês fecha em vendaT (inclui carteira)
+    const somaQtd = linhasMes.reduce((s,r) => s + (r.qtdProj || 0), 0);
     const diff = vendaT - somaQtd;
     if (diff !== 0 && livres.length > 0) {
       const maior = [...livres].sort((a,b) => b.partFinal - a.partFinal)[0];
@@ -6044,6 +6057,9 @@ function aplicarDescontinuadosERecalcular() {
 
   // Reaplica a restrição de oferta do 1º mês (não toca em descontinuados/travas)
   if (typeof aplicarLimiteEstoquePrimeiroMes === 'function') aplicarLimiteEstoquePrimeiroMes(allRows);
+
+  // Atualiza os cartões de resumo (total do mês reponderado)
+  if (typeof atualizarCartoesResumo === 'function') atualizarCartoesResumo();
 
   // Re-renderiza a aba de grade (que é a única visível agora)
   renderGradeTab();

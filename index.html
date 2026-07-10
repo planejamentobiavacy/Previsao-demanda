@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v58 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v59 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -1594,9 +1594,12 @@ function buildNumPorGrade(nd) {
 // ── CARTEIRA ALPA (produtos novos em carteira, sem histórico) ─────────
 let carteiraData = []; // linhas com Status Geral = "Carteira em aberto"
 
-// Converte a "Previsão faturamento" (data dd/mm/aaaa, serial Excel ou yyyy-mm-dd) em ANOMES (YYYYMM)
+// Converte a "Previsão faturamento" (Date, serial Excel, dd/mm/aaaa) em ANOMES (YYYYMM)
 function _cartParseAnomes(val) {
   if (val === null || val === undefined || val === '') return '';
+  if (val instanceof Date && !isNaN(val)) {
+    return val.getFullYear().toString() + String(val.getMonth() + 1).padStart(2, '0');
+  }
   if (typeof val === 'number' && val > 20000 && val < 90000) {   // serial do Excel
     const d = new Date(Math.round((val - 25569) * 86400000));
     return d.getUTCFullYear().toString() + String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -1604,11 +1607,41 @@ function _cartParseAnomes(val) {
   const s = String(val).trim();
   let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);           // dd/mm/aaaa
   if (m) { let y = m[3]; if (y.length === 2) y = '20' + y; return y + m[2].padStart(2, '0'); }
-  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);                   // yyyy-mm-dd
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);                   // yyyy-mm-dd (ISO)
   if (m) return m[1] + m[2].padStart(2, '0');
   m = s.match(/^(\d{1,2})\/(\d{4})$/);                          // mm/yyyy
   if (m) return m[2] + m[1].padStart(2, '0');
   return '';
+}
+
+// Escolhe a aba certa (a que tem DUN + Soma de Saldo a Faturar no cabeçalho),
+// preferindo abas com "BASE" no nome. Ignora abas de tabela dinâmica.
+function _cartSheetData(wb) {
+  const norm = c => String(c == null ? '' : c).trim().toUpperCase();
+  const nomes = wb.SheetNames.slice().sort((a, b) => (/base/i.test(b) ? 1 : 0) - (/base/i.test(a) ? 1 : 0));
+  for (const nome of nomes) {
+    const ws = wb.Sheets[nome];
+    if (!ws) continue;
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false, cellDates: true });
+    for (let i = 0; i < Math.min(aoa.length, 60); i++) {
+      const row = (aoa[i] || []).map(norm);
+      const temDun   = row.some(c => c === 'DUN');
+      const temSaldo = row.some(c => c.includes('SALDO A FATURAR'));
+      if (temDun && temSaldo) {
+        const headers = (aoa[i] || []).map(h => String(h == null ? '' : h).trim());
+        const out = [];
+        for (let k = i + 1; k < aoa.length; k++) {
+          const r = aoa[k] || [];
+          if (!r.length || r.every(c => c === '' || c == null)) continue;
+          const obj = {};
+          headers.forEach((h, j) => { if (h) obj[h] = r[j]; });
+          out.push(obj);
+        }
+        return out;
+      }
+    }
+  }
+  return null;
 }
 
 function handleCarteiraFile(file) {
@@ -1630,10 +1663,15 @@ function handleCarteiraFile(file) {
         data = parseCSV(linhas.slice(hdr).join('\n'));
       } else {
         const arr = new Uint8Array(e.target.result);
-        const wb = XLSX.read(arr, { type:'array', cellDates:false, cellNF:false, cellHTML:false });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        data = _cartFromSheet(ws);
+        const wb = XLSX.read(arr, { type:'array', cellDates:true, cellNF:false, cellHTML:false });
+        data = _cartSheetData(wb);
+        if (!data) {
+          // fallback: primeira aba, achando a linha com DUN
+          data = _cartFromSheet(wb.Sheets[wb.SheetNames[0]]);
+        }
       }
+      window._cartRaw = data;                                   // guarda o arquivo lido (todas as colunas)
+      window._cartColsAll = (data && data[0]) ? Object.keys(data[0]) : [];
       carteiraData = normalizeCarteira(data);
       window._carteiraData = carteiraData;
       const novos = computeCarteiraNovos();
@@ -1682,14 +1720,19 @@ function normalizeCarteira(data) {
   if (!data || !data.length) return [];
   const cols = Object.keys(data[0]);
   const norm = c => String(c).trim().toUpperCase().replace(/[ÁÀÂÃ]/g,'A').replace(/[ÉÊ]/g,'E').replace(/[Í]/g,'I').replace(/[ÓÔÕ]/g,'O').replace(/[Ú]/g,'U').replace(/[Ç]/g,'C').replace(/\s+/g,'_');
-  const find = cands => cols.find(c => { const n = norm(c); return cands.some(x => n === x || n.includes(x)); });
+  // Detecção por PRIORIDADE: tenta match exato de cada candidato na ordem; depois "inclui".
+  const find = cands => {
+    for (const x of cands) { const c = cols.find(col => norm(col) === x); if (c) return c; }
+    for (const x of cands) { const c = cols.find(col => norm(col).includes(x)); if (c) return c; }
+    return null;
+  };
   const cDun    = find(['DUN']);
   const cStatus = find(['STATUS_GERAL','STATUSGERAL','STATUS']);
-  const cDesc   = find(['DESCRICAO_DO_MATERIAL','DESCRICAO_MATERIAL','DESC_MATERIAL','DESCRICAO','MATERIAL']);
+  const cDesc   = find(['DESCRICAO_DO_MATERIAL','DESCRICAO_MATERIAL','DESC_MATERIAL','DESCRICAO']);
   const cCor    = find(['COR']);
-  const cNomeCor= find(['NOME_COR','NOMECOR']);
-  const cSaldo  = find(['SOMA_DE_SALDO_A_FATURAR','SALDO_A_FATURAR','SOMA_DE_SALDO','SALDO','SOMA_SALDO']);
-  const cPrev   = find(['PREVISAO_FATURAMENTO','PREVISAO_DE_FATURAMENTO','PREV_FATURAMENTO','PREVISAO']);
+  const cNomeCor= find(['NOME_COR','NOMECOR','NOME_DA_COR']);
+  const cSaldo  = find(['SOMA_DE_SALDO_A_FATURAR','SALDO_A_FATURAR','SOMA_DE_SALDO']);
+  const cPrev   = find(['PREVISAO_FATURAMENTO','PREVISAO_DE_FATURAMENTO','PREV_FATURAMENTO','PREVISAO_FAT']);
   if (!cDun || !cStatus || !cSaldo) {
     throw new Error('Colunas obrigatórias não encontradas. Preciso de: DUN, Status Geral, Soma de Saldo a Faturar. Colunas do arquivo: ' + cols.join(', '));
   }

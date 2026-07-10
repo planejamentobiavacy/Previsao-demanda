@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v63 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v65 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -3461,28 +3461,103 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
   const novos = window._carteiraNovos;
   if (!novos || !Object.keys(novos).length) return;
   const mesesProj = (mesesCfg || []).map(m => m.anomes);
+
+  // Projeção dos produtos COM histórico, por (opk, mês) — base para o espelho
+  const projPorProdMes = {};   // { mirrorOpk: { anomes: qtdProj_CX } }
+  const histMeses = {};        // { mirrorOpk: totalMesesComShare }
+  allRows.forEach(r => {
+    if (r._novoCarteira) return;
+    const k = r.nome_familia + '|||' + r.desc_cor;
+    if (!projPorProdMes[k]) projPorProdMes[k] = {};
+    projPorProdMes[k][r.anomes] = (projPorProdMes[k][r.anomes] || 0) + (r.qtdProj || 0);
+    if ((r.totalMesesComShare || 0) > (histMeses[k] || 0)) histMeses[k] = r.totalMesesComShare || 0;
+  });
+
+  if (!window._espelhoPorOpcao) window._espelhoPorOpcao = {};
+
+  // Pré-computa as palavras de cada espelho candidato (uma vez só)
+  const _pal = s => new Set(String(s).toUpperCase().split(/[^A-Z0-9]+/).filter(w => w.length >= 3));
+  const palavrasPorMirror = {};
+  Object.keys(projPorProdMes).forEach(k => {
+    if ((histMeses[k] || 0) >= 4) palavrasPorMirror[k] = _pal(k.replace('|||', ' '));
+  });
+
   Object.keys(novos).forEach(opk => {
     const o = novos[opk];
+
+    // 1) Define o espelho: escolha manual (se válida) ou automático (melhor por nome/histórico)
+    let mirror = (window._espelhoManual && window._espelhoManual[opk] && window._espelhoManual[opk] !== 'AUTO')
+      ? window._espelhoManual[opk] : null;
+    let ehManual = !!mirror;
+    if (!mirror || !projPorProdMes[mirror]) {
+      mirror = _autoEspelhoParaNovo(o, palavrasPorMirror, histMeses, _pal);
+      ehManual = false;
+    }
+    const mirrorMes = (mirror && projPorProdMes[mirror]) || {};
+
+    // 2) Escala: ancora a curva do espelho no volume da carteira (meses cobertos)
+    let somaCartCob = 0, somaMirrorCob = 0;
+    mesesProj.forEach(am => {
+      const cartCX = (o.porMes[am] || 0) / 12;
+      if (cartCX > 0) { somaCartCob += cartCX; somaMirrorCob += (mirrorMes[am] || 0); }
+    });
+    let escala = 0;
+    if (somaMirrorCob > 0) escala = somaCartCob / somaMirrorCob;
+    else {
+      // Espelho não projeta nos meses cobertos → usa proporção sobre todos os meses
+      const totMirror = mesesProj.reduce((s,am) => s + (mirrorMes[am] || 0), 0);
+      const totCart = mesesProj.reduce((s,am) => s + (o.porMes[am] || 0) / 12, 0);
+      escala = totMirror > 0 ? totCart / totMirror : 0;
+    }
+
+    if (mirror) {
+      const espCor = mirror.split('|||')[1] || mirror;
+      window._espelhoPorOpcao[opk] = espCor + (ehManual ? ' (manual)' : ' (auto)');
+    }
+
+    // 3) Injeta cada mês projetado
     mesesProj.forEach(anomes => {
       const gradesMes = o.gradesPorMes[anomes] || {};
       const duns = Object.keys(gradesMes);
-      if (!duns.length) {
-        // Sem detalhe por DUN nesse mês: cria uma linha única se houver total no mês
-        const pares = o.porMes[anomes] || 0;
-        if (pares <= 0) return;
-        allRows.push(_mkCartRow(forn, marca, o, anomes, 'CARTEIRA', pares));
-        return;
+      const paresMes = o.porMes[anomes] || 0;
+
+      if (paresMes > 0) {
+        // Mês COBERTO pela carteira → usa o pedido confirmado (por DUN)
+        if (duns.length) {
+          duns.forEach(dun => {
+            const pares = gradesMes[dun] || 0;
+            if (pares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, dun, pares, false, mirror));
+          });
+        } else {
+          allRows.push(_mkCartRow(forn, marca, o, anomes, 'CARTEIRA', paresMes, false, mirror));
+        }
+      } else if (escala > 0 && (mirrorMes[anomes] || 0) > 0) {
+        // Mês SEM carteira → SUGESTÃO pela curva do espelho ancorada no volume da carteira
+        const sugCX = (mirrorMes[anomes] || 0) * escala;
+        const sugPares = Math.round(sugCX * 12);
+        if (sugPares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, 'ESPELHO', sugPares, true, mirror));
       }
-      duns.forEach(dun => {
-        const pares = gradesMes[dun] || 0;
-        if (pares <= 0) return;
-        allRows.push(_mkCartRow(forn, marca, o, anomes, dun, pares));
-      });
     });
   });
 }
 
-function _mkCartRow(forn, marca, o, anomes, grade, pares) {
+// Escolhe automaticamente o melhor espelho para um produto novo:
+// maior sobreposição de palavras no nome, desempate por histórico.
+function _autoEspelhoParaNovo(o, palavrasPorMirror, histMeses, _pal) {
+  const alvo = _pal(o.nome_familia + ' ' + o.desc_cor);
+  let melhor = null, melhorScore = -1, melhorHist = -1;
+  Object.keys(palavrasPorMirror).forEach(k => {
+    const p = palavrasPorMirror[k];
+    let inter = 0; alvo.forEach(w => { if (p.has(w)) inter++; });
+    const h = histMeses[k] || 0;
+    if (inter > melhorScore || (inter === melhorScore && h > melhorHist)) {
+      melhor = k; melhorScore = inter; melhorHist = h;
+    }
+  });
+  return melhor;
+}
+
+function _mkCartRow(forn, marca, o, anomes, grade, pares, sugerido, mirror) {
   return {
     fornecedor: forn, marca,
     nome_familia: o.nome_familia, desc_cor: o.desc_cor,
@@ -3493,7 +3568,9 @@ function _mkCartRow(forn, marca, o, anomes, grade, pares) {
     _paresCarteira: pares,
     shareMedio: 0, shareAjustado: 0, partFinal: 0,
     indiceSazonal: 1, totalMesesComShare: 0,
-    _novoCarteira: true
+    _novoCarteira: true,
+    _sugeridoEspelho: !!sugerido,   // mês estimado pelo espelho (não é carteira confirmada)
+    _espelhoRef: mirror || null
   };
 }
 
@@ -4774,7 +4851,17 @@ function doRenderGradeTab() {
         ${emSellout ? '<span title="Produto descontinuado — vendendo o estoque de forma decrescente até esgotar. Estes valores ficam chumbados e o restante do mês é redistribuído entre os ativos." style="margin-left:8px;background:#f59e0b;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">⏳ ESGOTANDO ESTOQUE</span>' : ''}
         ${strike ? '<span style="margin-left:8px;background:#dc2626;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;">DESCONTINUADO</span>' : ''}
         ${(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean]) ? `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Um ou mais meses projetados não têm histórico próprio deste produto — usando sazonalidade da MARCA. Clique para escolher um produto-espelho." style="margin-left:8px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #fde68a;cursor:pointer;">⚠️ SAZ. MARCA (${[...new Set(window._fallbackPorOpcao[opKeyClean].meses)].map(am => am.substring(4,6)+'/'+am.substring(2,4)).join(', ')}) 🪞</span>` : ''}
-        ${(window._espelhoPorOpcao && window._espelhoPorOpcao[opKeyClean]) ? `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Sazonalidade herdada do produto-espelho: ${String(window._espelhoPorOpcao[opKeyClean]).replace(/"/g,'&quot;')}. Clique para trocar." style="margin-left:8px;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #ddd6fe;cursor:pointer;">🪞 ESPELHO: ${String(window._espelhoPorOpcao[opKeyClean]).toUpperCase().replace(/"/g,'&quot;')}</span>` : ''}
+        ${(() => {
+          // Prioriza a ESCOLHA MANUAL do espelho (aparece na hora, mesmo antes do recálculo aplicar)
+          const manual = window._espelhoManual && window._espelhoManual[opKeyClean];
+          let espTxt = null, ehManual = false;
+          if (manual && manual !== 'AUTO') { espTxt = (String(manual).split('|||')[1] || manual) + ' (manual)'; ehManual = true; }
+          else if (window._espelhoPorOpcao && window._espelhoPorOpcao[opKeyClean]) { espTxt = window._espelhoPorOpcao[opKeyClean]; }
+          if (!espTxt) return '';
+          const esc = s => String(s).replace(/"/g,'&quot;');
+          const famEsc = g.nome_familia.replace(/'/g,"\\'"), corEsc = g.desc_cor.replace(/'/g,"\\'");
+          return `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${famEsc}','${corEsc}')" title="Sazonalidade herdada do produto-espelho: ${esc(espTxt)}. Clique para trocar." style="margin-left:8px;background:${ehManual ? '#6d28d9' : '#ede9fe'};color:${ehManual ? '#fff' : '#6d28d9'};padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #ddd6fe;cursor:pointer;">🪞 ESPELHO: ${esc(String(espTxt).toUpperCase())}</span>`;
+        })()}
       </td>
       <td style="font-size:11.5px;color:#64748b;${dimTxt}">${(window._colecaoPorProduto && window._colecaoPorProduto[opKeyClean]) ? window._colecaoPorProduto[opKeyClean] : '—'}</td>
       <td class="right"><span class="badge badge-success" style="${strike ? 'background:#e2e8f0;color:#94a3b8;text-decoration:line-through;' : (emSellout ? 'background:#fef3c7;color:#b45309;' : '')}">${fmtInt(g.projOpcao)} CX</span></td>
@@ -6805,30 +6892,45 @@ function buildInfoPanelHTML() {
         <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;text-align:right;color:#16a34a;font-weight:700;">${fmtI(gradesMes[dun]/12)} CX</td>
       </tr>`).join('');
     const totalTodosMeses = o ? Object.values(o.porMes).reduce((s,v)=>s+v,0) : 0;
+    const ehSugerido = !!r._sugeridoEspelho;   // mês estimado pelo espelho (sem carteira)
+    const espRef = r._espelhoRef ? (String(r._espelhoRef).split('|||').join(' · ')) : null;
+    const sugCX = ehSugerido ? (r.qtdProj || 0) : 0;
+
+    const blocoMes = ehSugerido ? `
+        <div style="background:#faf5ff;border:1px solid #d8b4fe;border-left:4px solid #9333ea;border-radius:8px;padding:16px 18px;margin-bottom:18px;">
+          <div style="font-weight:800;color:#6d28d9;font-size:13px;margin-bottom:6px;">🪞 ${fmtAMx(mesSel)}: demanda SUGERIDA pelo espelho</div>
+          <div style="font-size:12.5px;color:#6b21a8;line-height:1.6;">
+            Este mês <strong>não tem carteira</strong>. A demanda foi estimada usando a curva do produto-espelho
+            <strong>${espRef || '—'}</strong>, ajustada ao volume da carteira deste produto (nos meses que ela cobre).
+            Sugestão: <strong>${fmtI(sugCX)} CX</strong> (${fmtI(sugCX*12)} pares).
+          </div>
+        </div>` : `
+        <div style="flex:1;min-width:180px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
+          <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">CARTEIRA EM ${fmtAMx(mesSel)}</div>
+          <div style="font-size:22px;font-weight:800;color:#16a34a;margin-top:4px;">${fmtI(paresMes)} pares</div>
+          <div style="font-size:13px;color:#166534;">= ${fmtI(paresMes/12)} CX projetadas</div>
+        </div>`;
+
     return `
       ${seletorMes}
       <div style="padding:8px 4px 24px;">
         <div style="background:#f0fdf4;border:1px solid #86efac;border-left:4px solid #16a34a;border-radius:8px;padding:16px 18px;margin-bottom:18px;">
           <div style="font-weight:800;color:#166534;font-size:14px;margin-bottom:6px;">🆕 Produto novo da Carteira Alpa</div>
           <div style="font-size:12.5px;color:#15803d;line-height:1.6;">
-            Este produto <strong>não tem histórico de vendas</strong> (o DUN não existe na base). Por isso ele
-            <strong>não passa pelo modelo</strong> de share/sazonalidade/outliers. A projeção vem <strong>direto da carteira</strong>:
-            a soma de <strong>"Saldo a Faturar"</strong> (em pares) agrupada pelo <strong>mês da "Previsão faturamento"</strong>.
-            A conversão para caixas é <strong>pares ÷ 12</strong>.
+            Este produto <strong>não tem histórico de vendas</strong> (o DUN não existe na base). Nos meses <strong>cobertos pela carteira</strong>,
+            a projeção vem direto do <strong>"Saldo a Faturar"</strong> (pares ÷ 12 = CX). Nos meses <strong>sem carteira</strong>, a demanda é
+            <strong>sugerida pelo produto-espelho</strong> ${espRef ? `(<strong>${espRef}</strong>)` : ''}, ancorada no volume da carteira.
           </div>
         </div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px;">
-          <div style="flex:1;min-width:180px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
-            <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">CARTEIRA EM ${fmtAMx(mesSel)}</div>
-            <div style="font-size:22px;font-weight:800;color:#16a34a;margin-top:4px;">${fmtI(paresMes)} pares</div>
-            <div style="font-size:13px;color:#166534;">= ${fmtI(paresMes/12)} CX projetadas</div>
-          </div>
+          ${blocoMes}
           <div style="flex:1;min-width:180px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
             <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">TOTAL NA CARTEIRA (TODOS OS MESES)</div>
             <div style="font-size:22px;font-weight:800;color:#0f172a;margin-top:4px;">${fmtI(totalTodosMeses)} pares</div>
             <div style="font-size:13px;color:#475569;">= ${fmtI(totalTodosMeses/12)} CX · ${o ? o.duns.size : 0} grade(s)/DUN</div>
           </div>
         </div>
+        ${ehSugerido ? '' : `
         <div style="font-size:12px;font-weight:800;color:#334155;letter-spacing:0.5px;margin-bottom:8px;">DETALHE POR DUN — ${fmtAMx(mesSel)}</div>
         <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
           <thead>
@@ -6839,7 +6941,7 @@ function buildInfoPanelHTML() {
             </tr>
           </thead>
           <tbody>${linhasDun || '<tr><td colspan="3" style="padding:14px;text-align:center;color:#94a3b8;">Sem carteira neste mês.</td></tr>'}</tbody>
-        </table>
+        </table>`}
       </div>`;
   }
 

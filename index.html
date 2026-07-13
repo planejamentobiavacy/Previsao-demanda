@@ -3575,27 +3575,53 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
     }
     const mirrorMes = (mirror && projPorProdMes[mirror]) || {};
 
-    // 2) Escala: ancora a curva do espelho no volume da carteira (meses cobertos)
-    let somaCartCob = 0, somaMirrorCob = 0;
-    mesesProj.forEach(am => {
-      const cartCX = (o.porMes[am] || 0) / 12;
-      if (cartCX > 0) { somaCartCob += cartCX; somaMirrorCob += (mirrorMes[am] || 0); }
-    });
-    let escala = 0;
-    if (somaMirrorCob > 0) escala = somaCartCob / somaMirrorCob;
-    else {
-      // Espelho não projeta nos meses cobertos → usa proporção sobre todos os meses
-      const totMirror = mesesProj.reduce((s,am) => s + (mirrorMes[am] || 0), 0);
-      const totCart = mesesProj.reduce((s,am) => s + (o.porMes[am] || 0) / 12, 0);
-      escala = totMirror > 0 ? totCart / totMirror : 0;
-    }
-
+    // Bookkeeping do espelho (para os selos/coleção herdada na tabela)
     if (mirror) {
       const espCor = mirror.split('|||')[1] || mirror;
       window._espelhoPorOpcao[opk] = espCor + (ehManual ? ' (manual)' : ' (auto)');
       if (!window._espelhoRefPorOpcao) window._espelhoRefPorOpcao = {};
       window._espelhoRefPorOpcao[opk] = mirror;   // opk do espelho (p/ herdar coleção etc.)
     }
+
+    // 2) Projeção CONFORME O ESPELHO, com travas contra explosão.
+    //    • Meses com pedido na carteira → mantêm o valor REAL confirmado.
+    //    • Meses sem carteira → seguem a CURVA do espelho, mas o total do produto
+    //      é ancorado no saldo real e limitado por dois freios:
+    //        (a) piso de cobertura: se os meses cobertos representam uma fatia
+    //            muito pequena da curva do espelho, essa fatia é elevada a um piso
+    //            (SHARE_FLOOR) para a escala não disparar;
+    //        (b) teto de fator: o total projetado nunca passa de CAP× o saldo real.
+    const SHARE_FLOOR = 0.15;                        // fatia mínima dos meses cobertos
+    const CAP = (typeof window._capEspelhoNovos === 'number' && window._capEspelhoNovos > 0)
+      ? window._capEspelhoNovos : 3;                 // teto: total ≤ CAP × saldo real
+
+    // Carteira real por mês (em CX) e total real (CX)
+    const cartCXmes = {};
+    let cartTotCX = 0;
+    mesesProj.forEach(am => {
+      const cx = (o.porMes[am] || 0) / 12;
+      cartCXmes[am] = cx;
+      cartTotCX += cx;
+    });
+    const totMirror = mesesProj.reduce((s, am) => s + (mirrorMes[am] || 0), 0);
+
+    // Fatia do espelho que cai nos meses cobertos pela carteira (com piso de segurança)
+    let coveredShare = 0;
+    if (totMirror > 0) {
+      const somaMirrorCob = mesesProj.reduce(
+        (s, am) => s + (cartCXmes[am] > 0 ? (mirrorMes[am] || 0) : 0), 0);
+      coveredShare = somaMirrorCob / totMirror;
+    }
+    if (coveredShare < SHARE_FLOOR) coveredShare = SHARE_FLOOR;
+
+    // Total implícito da janela, ancorado no saldo dos meses cobertos, com teto duro
+    let fullTotCX = (totMirror > 0 && cartTotCX > 0) ? (cartTotCX / coveredShare) : cartTotCX;
+    if (fullTotCX > cartTotCX * CAP) fullTotCX = cartTotCX * CAP;
+
+    // Volume a distribuir nos meses SEM carteira (pela curva do espelho)
+    const restanteCX = Math.max(0, fullTotCX - cartTotCX);
+    const somaMirrorNaoCob = mesesProj.reduce(
+      (s, am) => s + (cartCXmes[am] > 0 ? 0 : (mirrorMes[am] || 0)), 0);
 
     // 3) Injeta cada mês projetado
     mesesProj.forEach(anomes => {
@@ -3613,9 +3639,9 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
         } else {
           allRows.push(_mkCartRow(forn, marca, o, anomes, 'CARTEIRA', paresMes, false, mirror));
         }
-      } else if (escala > 0 && (mirrorMes[anomes] || 0) > 0) {
-        // Mês SEM carteira → SUGESTÃO pela curva do espelho ancorada no volume da carteira
-        const sugCX = (mirrorMes[anomes] || 0) * escala;
+      } else if (restanteCX > 0 && somaMirrorNaoCob > 0 && (mirrorMes[anomes] || 0) > 0) {
+        // Mês SEM carteira → SUGESTÃO pela curva do espelho (dentro do total travado)
+        const sugCX = restanteCX * ((mirrorMes[anomes] || 0) / somaMirrorNaoCob);
         const sugPares = Math.round(sugCX * 12);
         if (sugPares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, 'ESPELHO', sugPares, true, mirror));
       }

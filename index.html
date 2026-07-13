@@ -988,7 +988,7 @@
       <div class="section-title-bar">
         <span class="title-icon">📂</span>
         <h2>Carregar Base de Dados</h2>
-        <span class="step-tag" title="versão do gerador">gerador v67 · 2026-01-15</span>
+        <span class="step-tag" title="versão do gerador">gerador v68 · 2026-01-15</span>
         <span class="step-tag">Step 01 / 03</span>
       </div>
 
@@ -2294,6 +2294,7 @@ function normalizeData(data) {
   const colGrade    = find(['GRADE','grade','LOTE','lote','cod_grade','codigo_grade']);
   const colDescGrade= find(['DESC_GRADE','desc_grade','descgrade','descricao_grade','desc_lote']);
   const colColecao  = find(['COLECAO','colecao','coleção','colecoes','collection','temporada','season','linha']);
+  const colFat      = find(['FATURAMENTO','faturamento','valor','VALOR','receita','RECEITA','vlr_faturamento','faturamento_liquido','valor_total','vlrtotal','fat']);
 
   console.log('Mapeamento colunas:', { colForn, colMarca, colFam, colCor, colAnomes, colQtd });
   console.log('Colunas disponíveis:', keys);
@@ -2375,7 +2376,8 @@ function normalizeData(data) {
         const digits = String(val).replace(/[^0-9]/g, '');
         return digits.length === 6 ? digits : (digits.length > 6 ? digits.substring(0,6) : '');
       })(),
-      qtd:          parseNum(row[colQtd])
+      qtd:          parseNum(row[colQtd]),
+      faturamento:  colFat ? parseNum(row[colFat]) : 0
     }))
     .filter(r => {
       // Exclui linhas onde fornecedor/familia são NULL literais ou vazios
@@ -2579,7 +2581,30 @@ function addMes(anomesSugerido = '', vendaSugerida = '') {
       </div>
     </div>
 
-    <!-- Linha 4: Detecção de outliers -->
+    <!-- Linha 5b: Detecção de remarcação por preço -->
+    <div class="dim-limits">
+      <div class="dl-section-label">
+        <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="detRemarca-${id}" checked style="width:15px;height:15px;accent-color:#dc2626;cursor:pointer;">
+          🏷️ Detectar remarcação / liquidação (preço = faturamento ÷ qtd)
+        </label>
+      </div>
+      <div class="dl-grid">
+        <div>
+          <div class="dw-label">Queda de preço p/ remarcação (%)</div>
+          <input type="number" id="remarcaLimiar-${id}" placeholder="ex: 10" min="1" max="50" step="1" value="10">
+          <div class="dl-hint">mês com preço abaixo disso da mediana = liquidação</div>
+        </div>
+        <div class="dl-explainer" style="background:#fef2f2;border-color:#fecaca;">
+          <strong style="color:#dc2626;">Remarcação:</strong> calcula o preço médio de cada mês
+          (faturamento ÷ qtd) e compara com o preço <strong>mediano</strong> do produto. Meses com preço
+          muito abaixo (liquidação) são <strong>desconsiderados da demanda</strong>, pois o volume foi
+          inflado pelo desconto — a projeção usa a <strong>demanda real</strong>. No gráfico esses meses
+          aparecem destacados e há uma linha tracejada da demanda real.
+        </div>
+      </div>
+    </div>
+
     <div class="dim-limits">
       <div class="dl-section-label">📉 Detecção de Outliers (descarta meses fora da curva)</div>
       <div class="dl-grid">
@@ -2783,6 +2808,9 @@ function calcularTodos() {
     const sazAtiva  = document.getElementById(`sazAtiva-${id}`)?.checked || false;
     const sazForca  = (parseFloat(document.getElementById(`sazForca-${id}`)?.value) || 0) / 100;
     const sazLimiar = (parseFloat(document.getElementById(`sazLimiar-${id}`)?.value) || 130) / 100;
+    const _drEl = document.getElementById(`detRemarca-${id}`);
+    window._detectarRemarcacao = _drEl ? _drEl.checked : true;
+    window._remarcaLimiar = (parseFloat(document.getElementById(`remarcaLimiar-${id}`)?.value) || 10) / 100;
     const somaP = pP1 + pP2 + pP3 + pP4 + pP5;
     if (Math.abs(somaP - 100) > 0.5) {
       toast(`⚠️ ${anomes}: os pesos por período somam ${somaP.toFixed(0)}% — ajuste para 100%.`, 'error');
@@ -2828,14 +2856,61 @@ function calcularTodos() {
     const key = r => r.nome_familia + '|||' + r.desc_cor;
     const vendasPorMes = {};  // {k+'|'+ano_mes: cx_vendido}
     const gradesPorMes = {};  // {k+'|'+ano_mes: Set(grades)}
+    const fatPorMes = {};     // {km: soma faturamento}  → preço = fat/qtd
+    const qtdPorMes = {};     // {km: soma qtd (unidades de venda)}
     base.forEach(r => {
       if (!r.ano_mes) return;
       const k = key(r);
       const km = k + '|' + r.ano_mes;
       vendasPorMes[km] = (vendasPorMes[km] || 0) + Math.round(r.cx);
+      fatPorMes[km] = (fatPorMes[km] || 0) + (r.faturamento || 0);
+      qtdPorMes[km] = (qtdPorMes[km] || 0) + (r.qtd || 0);
       if (!gradesPorMes[km]) gradesPorMes[km] = new Set();
       if (r.grade) gradesPorMes[km].add(r.grade);
     });
+
+    // ── DETECÇÃO DE REMARCAÇÃO (liquidação) POR PREÇO MÉDIO ──────────────
+    // Preço médio do mês = faturamento / qtd. Referência = MEDIANA dos preços
+    // mensais do produto (robusta a liquidações). Mês com preço < 90% da
+    // referência é tratado como remarcação e DESCONSIDERADO da demanda/share.
+    const precoPorMes = {};        // {km: preco}
+    const remarcadoPorMes = {};    // {km: true} meses de remarcação (auto)
+    window._precoPorProdMes = window._precoPorProdMes || {};
+    window._remarcacaoPorProd = {};
+    (function(){
+      const porProd = {};  // {k: [{ano_mes, preco}]}
+      Object.keys(qtdPorMes).forEach(km => {
+        const q = qtdPorMes[km], f = fatPorMes[km];
+        if (q > 0 && f > 0) {
+          const p = f / q;
+          precoPorMes[km] = p;
+          const idx = km.lastIndexOf('|');
+          const k = km.substring(0, idx), am = km.substring(idx + 1);
+          (porProd[k] = porProd[k] || []).push({ ano_mes: am, preco: p, km });
+        }
+      });
+      const detectRemarca = !!window._detectarRemarcacao;   // liga/desliga via config
+      Object.keys(porProd).forEach(k => {
+        const arr = porProd[k];
+        const precos = arr.map(x => x.preco).sort((a,b) => a - b);
+        // mediana
+        const n = precos.length;
+        const mediana = n === 0 ? 0 : (n % 2 ? precos[(n-1)/2] : (precos[n/2 - 1] + precos[n/2]) / 2);
+        const quedaLim = (typeof window._remarcaLimiar === 'number' ? window._remarcaLimiar : 0.10);
+        const limiar = mediana * (1 - quedaLim);
+        const mapaMes = {};
+        arr.forEach(x => {
+          mapaMes[x.ano_mes] = { preco: x.preco, remarcado: false };
+          if (detectRemarca && n >= 3 && mediana > 0 && x.preco < limiar) {
+            remarcadoPorMes[x.km] = true;
+            mapaMes[x.ano_mes].remarcado = true;
+          }
+        });
+        window._precoPorProdMes[k] = { mediana, limiar, meses: mapaMes };
+        const remMeses = arr.filter(x => remarcadoPorMes[x.km]).map(x => x.ano_mes);
+        if (remMeses.length) window._remarcacaoPorProd[k] = new Set(remMeses);
+      });
+    })();
 
     // Agrupa por produto para detecção de outlier
     const vendasPorProduto = {};
@@ -3208,6 +3283,7 @@ function calcularTodos() {
       const k = km.substring(0, idx);
       const ano_mes = km.substring(idx + 1);
       if (ruptura.has(km) || outlier.has(km)) return;
+      if (remarcadoPorMes[km]) return;   // mês de remarcação → fora do share (demanda real)
       const vendaProd  = vendasPorMes[km];
       const vendaMarca = totalMarcaPorMes[ano_mes] || 0;
       if (vendaProd <= 0 || vendaMarca <= 0) return;
@@ -6549,6 +6625,7 @@ function showHist(familia, cor, forn, marca) {
 
   const getTipo = p => {
     if (projMap[p] !== undefined)           return 'proj';
+    if (remSet.has(p))                      return 'remarc';
     if (ruptMesesProduto.has(p))            return 'rupt';
     if (picoReprimidoProduto.has(p))        return 'reprimido';
     if (outlierMesesProduto.has(p))         return 'outl';
@@ -6556,18 +6633,29 @@ function showHist(familia, cor, forn, marca) {
     if (mesesPrev && mesesPrev.includes(p)) return 'prev';
     return 'outro';
   };
-  const CORES  = { proj:'#059669', l3m:'#2563eb', prev:'#f59e0b', outro:'#94a3b8', rupt:'#dc2626', outl:'#9333ea', reprimido:'#d97706' };
-  const LABELS = { proj:'Projeção', l3m:'L3M', prev:'Prev Ano', outro:'', rupt:'Ruptura', outl:'Outlier', reprimido:'Pico reprimido' };
+  const CORES  = { proj:'#059669', l3m:'#2563eb', prev:'#f59e0b', outro:'#94a3b8', rupt:'#dc2626', outl:'#9333ea', reprimido:'#d97706', remarc:'#db2777' };
+  const LABELS = { proj:'Projeção', l3m:'L3M', prev:'Prev Ano', outro:'', rupt:'Ruptura', outl:'Outlier', reprimido:'Pico reprimido', remarc:'Remarcação' };
 
   const getVal = p => projMap[p] !== undefined ? projMap[p] : (agg[p] || 0);
   const maxVal = Math.max(...todosPeriodos.map(getVal), 1);
+
+  // Remarcações (liquidações) detectadas por preço + preço médio por mês
+  const prodK = familia + '|||' + cor;
+  const remSet = (window._remarcacaoPorProd && window._remarcacaoPorProd[prodK]) || new Set();
+  const precoInfo = (window._precoPorProdMes && window._precoPorProdMes[prodK]) || null;
+  // Demanda real = média das vendas dos meses "limpos" (sem remarcação/ruptura/outlier)
+  const mesesLimpos = todosPeriodos.filter(p => projMap[p]===undefined && !remSet.has(p)
+    && !ruptMesesProduto.has(p) && !outlierMesesProduto.has(p) && (agg[p]||0) > 0);
+  const demandaReal = mesesLimpos.length
+    ? Math.round(mesesLimpos.reduce((s,p)=>s+(agg[p]||0),0)/mesesLimpos.length) : 0;
+  const temRemarca = remSet.size > 0;
 
   const n      = todosPeriodos.length;
   const barW   = Math.max(36, Math.min(78, Math.floor(900 / n) - 8));
   const gap    = Math.max(6, Math.min(14, Math.floor(barW * 0.18)));
   const chartH = 200;
   const topPad = 55;  // espaço extra para badges de descarte
-  const botPad = 74;
+  const botPad = precoInfo ? 96 : 74;   // + espaço p/ preço médio abaixo do estoque
   const totalW = n * (barW + gap) - gap;
   const svgH   = chartH + topPad + botPad;
 
@@ -6614,6 +6702,9 @@ function showHist(familia, cor, forn, marca) {
         <text x="${cx}" y="${yClick-19}" text-anchor="middle" font-size="9" fill="#fff" font-weight="800" font-family="Barlow,sans-serif">IGNORADO</text>` : ''}
       ${(lbl && !isIgnorado) ? `<rect x="${x+2}" y="${y-16}" width="${barW-4}" height="14" fill="${col}" rx="3" opacity="0.15"/>
         <text x="${cx}" y="${y-5}" text-anchor="middle" font-size="9" fill="${col}" font-weight="800" font-family="Barlow,sans-serif">${lbl}</text>` : ''}
+      ${(tipo === 'remarc' && !isIgnorado) ? `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="none" stroke="#db2777" stroke-width="2.5" stroke-dasharray="4,3" rx="4"/>
+        <rect x="${x+barW/2-38}" y="${y-30}" width="76" height="13" fill="#fce7f3" stroke="#db2777" stroke-width="1" rx="3"/>
+        <text x="${cx}" y="${y-20}" text-anchor="middle" font-size="7.5" fill="#9d174d" font-weight="800" font-family="Barlow,sans-serif">🏷️ REMARCAÇÃO</text>` : ''}
       ${(isProj && limitadoMap[p]) ? (() => {
         const info = limitadoMap[p];
         const txt  = info.tipo === 'zero' ? '🔒 sem estoque' : '🔒 limite estoque';
@@ -6641,6 +6732,15 @@ function showHist(familia, cor, forn, marca) {
         return `<rect x="${x+1}" y="${topPad+chartH+58}" width="${barW-2}" height="14" fill="${stkBg}" rx="3"/>
                 <text x="${cx}" y="${topPad+chartH+68}" text-anchor="middle" font-size="9" fill="${stkColor}" font-weight="700" font-family="Barlow,sans-serif">📦 ${estoque.toLocaleString('pt-BR')}</text>`;
       })() : ''}
+      ${(precoInfo && precoInfo.meses[p]) ? (() => {
+        const pm = precoInfo.meses[p];
+        const remc = pm.remarcado;
+        const corP = remc ? '#db2777' : '#64748b';
+        const bgP  = remc ? '#fce7f3' : 'transparent';
+        const txtP = 'R$ ' + pm.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return `<rect x="${x+1}" y="${topPad+chartH+76}" width="${barW-2}" height="14" fill="${bgP}" rx="3"/>
+                <text x="${cx}" y="${topPad+chartH+86}" text-anchor="middle" font-size="8.5" fill="${corP}" font-weight="${remc?'800':'600'}" font-family="Barlow,sans-serif">${txtP}</text>`;
+      })() : ''}
       ${clickable ? `<title>Clique para ${isIgnorado?'voltar a considerar':'ignorar'} este mês no cálculo</title>` : ''}
     </g>`;
   }).join('');
@@ -6658,11 +6758,20 @@ function showHist(familia, cor, forn, marca) {
       <text x="-6" y="${gy+4}" text-anchor="end" font-size="9" fill="#94a3b8" font-family="Barlow,sans-serif">${Math.round(maxVal*f).toLocaleString('pt-BR')}</text>`;
   }).join('');
 
+  // Linha tracejada da DEMANDA REAL (média dos meses limpos) quando há remarcação
+  const linhaReal = (temRemarca && demandaReal > 0) ? (() => {
+    const yR = topPad + chartH - Math.min(chartH, (demandaReal / maxVal) * chartH);
+    return `<line x1="0" y1="${yR}" x2="${totalW}" y2="${yR}" stroke="#db2777" stroke-width="2" stroke-dasharray="7,4"/>
+      <rect x="${totalW-118}" y="${yR-16}" width="118" height="14" rx="3" fill="#fce7f3" stroke="#db2777" stroke-width="0.8"/>
+      <text x="${totalW-6}" y="${yR-6}" text-anchor="end" font-size="9" fill="#9d174d" font-weight="800" font-family="Barlow,sans-serif">demanda real: ${demandaReal.toLocaleString('pt-BR')}</text>`;
+  })() : '';
+
   const legendItems = [
     {color:'#94a3b8',label:'Histórico'},
     {color:'#dc2626',label:'Ruptura (venda perdida)'},
     {color:'#d97706',label:'Pico reprimido (ruptura c/ venda alta — mantém como piso)'},
     {color:'#9333ea',label:'Outlier (fora dos limites da mediana)'},
+    {color:'#db2777',label:'Remarcação (preço baixo — desconsiderada)'},
     {color:'#059669',label:'Projeção'},
   ];
   // Legenda extra de meses descartados pelo trimming
@@ -6724,6 +6833,7 @@ function showHist(familia, cor, forn, marca) {
           </pattern>
         </defs>
         ${gridLines}
+        ${linhaReal}
         ${bars}
         ${divisor}
         <line x1="0" y1="${topPad+chartH}" x2="${totalW}" y2="${topPad+chartH}" stroke="#cbd5e1" stroke-width="1.5"/>

@@ -3743,20 +3743,24 @@ function atualizarCartoesResumo(allRows, meses) {
   meses = meses || (window._exportData && window._exportData.meses) || [];
   const anomesUnicos = [...new Set(allRows.map(r=>r.anomes))].sort();
   const totalGeral = allRows.reduce((s,r)=>s+(r.qtdProj||0),0);
+  const cartTotal = allRows.filter(r=>r._novoCarteira).reduce((s,r)=>s+(r.qtdProj||0),0);
   const skusComProj = [...new Set(allRows.filter(r=>r.qtdProj>0).map(r=>r.nome_familia+'|'+r.desc_cor))].length;
   el.innerHTML = anomesUnicos.map(am => {
     const total = allRows.filter(r=>r.anomes===am).reduce((s,r)=>s+(r.qtdProj||0),0);
+    const cartCX = allRows.filter(r=>r.anomes===am && r._novoCarteira).reduce((s,r)=>s+(r.qtdProj||0),0);
     const paresProj = total * 12;
     return `<div class="summary-card">
       <div class="sc-label">${am.substring(4,6)}/${am.substring(0,4)}</div>
       <div class="sc-val" style="color:var(--accent)">${total.toLocaleString('pt-BR')} <span style="font-size:14px">CX</span></div>
       <div class="sc-sub">${paresProj > 0 ? paresProj.toLocaleString('pt-BR') + ' pares \u2192 ' : ''}${total.toLocaleString('pt-BR')} CX projetadas</div>
+      <div class="sc-sub" style="color:${cartCX > 0 ? '#166534' : '#94a3b8'};font-weight:${cartCX > 0 ? '700' : '500'};margin-top:2px;">\uD83E\uDDFE ${cartCX.toLocaleString('pt-BR')} CX em carteira</div>
     </div>`;
   }).join('') + `
     <div class="summary-card" style="border-top-color:#7c3aed">
       <div class="sc-label">Total Geral</div>
       <div class="sc-val">${totalGeral.toLocaleString('pt-BR')} CX</div>
       <div class="sc-sub">${anomesUnicos.length} meses projetados</div>
+      <div class="sc-sub" style="color:${cartTotal > 0 ? '#166534' : '#94a3b8'};font-weight:${cartTotal > 0 ? '700' : '500'};margin-top:2px;">\uD83E\uDDFE ${cartTotal.toLocaleString('pt-BR')} CX em carteira</div>
     </div>
     <div class="summary-card" style="border-top-color:#059669">
       <div class="sc-label">SKUs \u00fanicos</div>

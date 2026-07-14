@@ -6711,13 +6711,15 @@ function showHist(familia, cor, forn, marca) {
   const demandaReal = mesesLimpos.length
     ? Math.round(mesesLimpos.reduce((s,p)=>s+(agg[p]||0),0)/mesesLimpos.length) : 0;
   const temRemarca = remSet.size > 0;
+  // Produto NOVO da carteira: expõe o Saldo a Faturar por mês para comparar com a projeção
+  const cartNovo = (window._carteiraNovos && window._carteiraNovos[familia + '|||' + cor]) || null;
 
   const n      = todosPeriodos.length;
   const barW   = Math.max(36, Math.min(78, Math.floor(900 / n) - 8));
   const gap    = Math.max(6, Math.min(14, Math.floor(barW * 0.18)));
   const chartH = 200;
   const topPad = 55;  // espaço extra para badges de descarte
-  const botPad = precoInfo ? 96 : 74;   // + espaço p/ preço médio abaixo do estoque
+  const botPad = (precoInfo ? 96 : 74) + (cartNovo ? 20 : 0);   // + preço médio + linha da carteira
   const totalW = n * (barW + gap) - gap;
   const svgH   = chartH + topPad + botPad;
 
@@ -6794,6 +6796,15 @@ function showHist(familia, cor, forn, marca) {
         return `<rect x="${x+1}" y="${topPad+chartH+58}" width="${barW-2}" height="14" fill="${stkBg}" rx="3"/>
                 <text x="${cx}" y="${topPad+chartH+68}" text-anchor="middle" font-size="9" fill="${stkColor}" font-weight="700" font-family="Barlow,sans-serif">📦 ${estoque.toLocaleString('pt-BR')}</text>`;
       })() : ''}
+      ${cartNovo ? (() => {
+        const paresMes = (cartNovo.porMes && cartNovo.porMes[p]) || 0;
+        const cxMes = Math.round(paresMes / 12);
+        const has = paresMes > 0;
+        const yC = topPad + chartH + (haStkData ? 76 : 58);
+        return `<rect x="${x+1}" y="${yC}" width="${barW-2}" height="14" fill="${has ? '#dcfce7' : 'transparent'}" rx="3"/>
+                <text x="${cx}" y="${yC+10}" text-anchor="middle" font-size="8.5" fill="${has ? '#166534' : '#cbd5e1'}" font-weight="${has ? '800' : '500'}" font-family="Barlow,sans-serif">🧾 ${has ? cxMes.toLocaleString('pt-BR') : '—'}</text>
+                <title>Saldo a Faturar da carteira em ${fmt(p)}: ${paresMes.toLocaleString('pt-BR')} pares (${cxMes.toLocaleString('pt-BR')} CX)</title>`;
+      })() : ''}
       ${(precoInfo && precoInfo.meses[p]) ? (() => {
         const pm = precoInfo.meses[p];
         const remc = pm.remarcado;
@@ -6862,12 +6873,14 @@ function showHist(familia, cor, forn, marca) {
   document.getElementById('histTitle').textContent = `${familia} · ${cor}`;
   document.getElementById('histSubtitle').textContent =
     `${forn} · ${marca} · Histórico: ${totalHist.toLocaleString('pt-BR')} CX` +
-    (totalProj ? ` · Projeção: ${totalProj.toLocaleString('pt-BR')} CX` : '');
+    (totalProj ? ` · Projeção: ${totalProj.toLocaleString('pt-BR')} CX` : '') +
+    (cartNovo ? ` · Carteira: ${(cartNovo.total||0).toLocaleString('pt-BR')} pares (${Math.round((cartNovo.total||0)/12).toLocaleString('pt-BR')} CX)` : '');
 
   document.getElementById('histBody').innerHTML = `
     <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px;padding:10px 16px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;">
       ${legend}
       ${stkLegend ? `<div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0;flex-wrap:wrap;"><span style="font-size:10px;color:#64748b;font-weight:700;letter-spacing:0.5px;">ESTOQUE:</span>${stkLegend}</div>` : ''}
+      ${cartNovo ? `<div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0;flex-wrap:wrap;"><span style="font-size:10px;color:#64748b;font-weight:700;letter-spacing:0.5px;">CARTEIRA:</span><div style="display:flex;align-items:center;gap:6px;background:#dcfce7;padding:3px 8px;border-radius:4px;"><span style="font-size:11px">🧾</span><span style="font-size:11px;color:#166534;font-weight:700;">Saldo a Faturar (CX) por mês</span></div><span style="font-size:10.5px;color:#64748b;">Produto novo: as barras são a projeção pela curva do espelho; 🧾 é o backlog real da carteira. Meses com "—" não têm saldo na carteira.</span></div>` : ''}
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0;flex-wrap:wrap;"><span style="font-size:10px;color:#64748b;font-weight:700;letter-spacing:0.5px;">TRIMMING:</span>${trimLegend}</div>
       ${window._mesesIgnorados && window._mesesIgnorados.size > 0 ? `
       <div style="margin-top:8px;padding:10px 14px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -8100,25 +8113,33 @@ async function carregarSortimentoAtivo() {
     const { data, error } = await window.supabase
       .from('sortimento').select('*').eq('id', id).maybeSingle();
     if (error) throw error;
-    if (!data) return;
-    // Descontinuados manuais + coleções ocultas (prefixo __COL__:)
-    const todas = data.opcoes || [];
-    window._opcoesDesativadas  = new Set(todas.filter(x => !String(x).startsWith('__COL__:')));
-    window._colecoesDesativadas = new Set(
-      todas.filter(x => String(x).startsWith('__COL__:')).map(x => String(x).slice(8))
-    );
-    window._gradesDesativadas = new Set(data.grades || []);
-    const aj = data.ajustes || null;
-    if (aj) {
-      if (aj.espelho)         window._espelhoManual  = JSON.parse(JSON.stringify(aj.espelho));
-      if (aj.coberturaPorMes) window._coberturaPorMes = JSON.parse(JSON.stringify(aj.coberturaPorMes));
-      if (aj.cobertura != null) window._coberturaDefaultCompra = parseFloat(aj.cobertura) || window._coberturaDefaultCompra;
+    if (!data) { window._sortimentoCarregadoId = id; return; }
+
+    // O estado salvo é carregado do banco UMA vez por sortimento (id). Em recálculos
+    // seguintes do MESMO sortimento, o estado VIVO em memória (descontinuados, coleções,
+    // grades, ESPELHO MANUAL, cobertura) é preservado — senão um espelho manual recém
+    // escolhido e ainda não salvo seria sobrescrito pela recarga e voltaria p/ automático.
+    if (window._sortimentoCarregadoId !== id) {
+      const todas = data.opcoes || [];
+      window._opcoesDesativadas  = new Set(todas.filter(x => !String(x).startsWith('__COL__:')));
+      window._colecoesDesativadas = new Set(
+        todas.filter(x => String(x).startsWith('__COL__:')).map(x => String(x).slice(8))
+      );
+      window._gradesDesativadas = new Set(data.grades || []);
+      const ajInit = data.ajustes || null;
+      if (ajInit) {
+        if (ajInit.espelho)         window._espelhoManual  = JSON.parse(JSON.stringify(ajInit.espelho));
+        if (ajInit.coberturaPorMes) window._coberturaPorMes = JSON.parse(JSON.stringify(ajInit.coberturaPorMes));
+        if (ajInit.cobertura != null) window._coberturaDefaultCompra = parseFloat(ajInit.cobertura) || window._coberturaDefaultCompra;
+      }
+      window._sortimentoCarregadoId = id;
     }
+    const aj = data.ajustes || null;
     try {
       if (typeof _buildColecaoPorProduto === 'function') _buildColecaoPorProduto();
       if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
     } catch (e) { console.error(e); }
-    if (window._opcoesDesativadas.size || window._gradesDesativadas.size || window._colecoesDesativadas.size) {
+    if ((window._opcoesDesativadas && window._opcoesDesativadas.size) || (window._gradesDesativadas && window._gradesDesativadas.size) || (window._colecoesDesativadas && window._colecoesDesativadas.size)) {
       aplicarDescontinuadosERecalcular();
     }
     // Ajustes finos de demanda (exclusões de barras, travas manuais, ajustes de grade)

@@ -3553,6 +3553,12 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
     if ((r.totalMesesComShare || 0) > (histMeses[k] || 0)) histMeses[k] = r.totalMesesComShare || 0;
   });
 
+  // Cobertura da janela por espelho: em quantos meses projetados ele tem projeção > 0
+  const coberturaMirror = {};
+  Object.keys(projPorProdMes).forEach(k => {
+    coberturaMirror[k] = mesesProj.reduce((c, am) => c + (((projPorProdMes[k][am]) || 0) > 0 ? 1 : 0), 0);
+  });
+
   if (!window._espelhoPorOpcao) window._espelhoPorOpcao = {};
 
   // Pré-computa as palavras de cada espelho candidato (uma vez só)
@@ -3563,6 +3569,7 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
   });
 
   window._projCartMes = {};   // { opk: { anomes: CX } } — projeção mensal do item novo (via espelho)
+  window._cartCalcDetalhe = {};   // { opk: {...} } — memória de cálculo p/ verificação no painel
   Object.keys(novos).forEach(opk => {
     const o = novos[opk];
 
@@ -3571,7 +3578,7 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
       ? window._espelhoManual[opk] : null;
     let ehManual = !!mirror;
     if (!mirror || !projPorProdMes[mirror]) {
-      mirror = _autoEspelhoParaNovo(o, palavrasPorMirror, histMeses, _pal);
+      mirror = _autoEspelhoParaNovo(o, palavrasPorMirror, histMeses, _pal, coberturaMirror, mesesProj.length);
       ehManual = false;
     }
     const mirrorMes = (mirror && projPorProdMes[mirror]) || {};
@@ -3613,20 +3620,24 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
 
     if (totMirror > 0 && totalBacklogCX > 0) {
       // Define o volume total do item na janela
-      let fullTotCX;
+      let fullTotCX, coveredShare = null, metodo;
       if (cartInWindowCX > 0) {
         // Há saldo dentro da janela → extrapola essa fatia pela curva do espelho
         const somaMirrorCob = mesesProj.reduce(
           (s, am) => s + (cartCXmes[am] > 0 ? (mirrorMes[am] || 0) : 0), 0);
-        let coveredShare = somaMirrorCob / totMirror;
+        coveredShare = somaMirrorCob / totMirror;
         if (coveredShare < SHARE_FLOOR) coveredShare = SHARE_FLOOR;
         fullTotCX = cartInWindowCX / coveredShare;
+        metodo = 'Escala pela fatia coberta (há saldo na janela)';
       } else {
         // Backlog está fora da janela → usa o backlog TOTAL como volume da janela
         fullTotCX = totalBacklogCX;
+        metodo = 'Backlog total (saldo datado fora da janela)';
       }
       // Teto duro: nunca projetar mais que CAP× o backlog real do item
-      if (fullTotCX > totalBacklogCX * CAP) fullTotCX = totalBacklogCX * CAP;
+      const preCapCX = fullTotCX;
+      const capAplicado = fullTotCX > totalBacklogCX * CAP;
+      if (capAplicado) fullTotCX = totalBacklogCX * CAP;
 
       // Distribui o volume pela CURVA DO ESPELHO em TODOS os meses (herda outlier/ruptura/pesos)
       mesesProj.forEach(anomes => {
@@ -3635,6 +3646,14 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
         window._projCartMes[opk][anomes] = pares / 12;
         if (pares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, 'ESPELHO', pares, true, mirror));
       });
+
+      // Memória de cálculo (verificação no painel do item novo)
+      window._cartCalcDetalhe[opk] = {
+        mirror, ehManual, metodo,
+        mirrorMes: mesesProj.reduce((a, am) => { a[am] = mirrorMes[am] || 0; return a; }, {}),
+        totMirror, cartInWindowCX, totalBacklogCX,
+        coveredShare, fullTotCX, preCapCX, capAplicado, cap: CAP
+      };
     } else if (cartInWindowCX > 0) {
       // Sem espelho, mas há saldo na janela → usa o saldo cru da carteira, por DUN
       mesesProj.forEach(anomes => {
@@ -3653,6 +3672,7 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
           }
         }
       });
+      window._cartCalcDetalhe[opk] = { mirror: null, metodo: 'Saldo cru da carteira (sem espelho utilizável)', cartInWindowCX, totalBacklogCX };
     } else if (totalBacklogCX > 0) {
       // Sem espelho E backlog fora da janela → último recurso: distribui o backlog
       // total igualmente pelos meses da janela, p/ o item não sumir da lista.
@@ -3661,24 +3681,38 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
         window._projCartMes[opk][anomes] = paresPorMes / 12;
         if (paresPorMes > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, 'CARTEIRA', paresPorMes, true, mirror));
       });
+      window._cartCalcDetalhe[opk] = { mirror: null, metodo: 'Distribuição igual (sem espelho, saldo fora da janela)', totalBacklogCX };
     }
   });
 }
 
 // Escolhe automaticamente o melhor espelho para um produto novo:
 // maior sobreposição de palavras no nome, desempate por histórico.
-function _autoEspelhoParaNovo(o, palavrasPorMirror, histMeses, _pal) {
+function _autoEspelhoParaNovo(o, palavrasPorMirror, histMeses, _pal, coberturaMirror, nMeses) {
   const alvo = _pal(o.nome_familia + ' ' + o.desc_cor);
-  let melhor = null, melhorScore = -1, melhorHist = -1;
-  Object.keys(palavrasPorMirror).forEach(k => {
-    const p = palavrasPorMirror[k];
-    let inter = 0; alvo.forEach(w => { if (p.has(w)) inter++; });
-    const h = histMeses[k] || 0;
-    if (inter > melhorScore || (inter === melhorScore && h > melhorHist)) {
-      melhor = k; melhorScore = inter; melhorHist = h;
-    }
-  });
-  return melhor;
+  coberturaMirror = coberturaMirror || {};
+  // Escolhe o melhor por semelhança de nome, mas só entre candidatos com boa
+  // cobertura da janela e histórico — para a curva herdada ficar coerente.
+  // Desempate: mais cobertura, depois mais histórico.
+  const pick = (minCob, minHist) => {
+    let melhor = null, ms = -1, mc = -1, mh = -1;
+    Object.keys(palavrasPorMirror).forEach(k => {
+      const cob = coberturaMirror[k] || 0;
+      const h = histMeses[k] || 0;
+      if (cob < minCob || h < minHist) return;
+      const p = palavrasPorMirror[k];
+      let inter = 0; alvo.forEach(w => { if (p.has(w)) inter++; });
+      if (inter > ms || (inter === ms && cob > mc) || (inter === ms && cob === mc && h > mh)) {
+        melhor = k; ms = inter; mc = cob; mh = h;
+      }
+    });
+    return melhor;
+  };
+  const n = nMeses || 6;
+  // 1º: cobertura total da janela + histórico robusto (curva mais coerente)
+  // 2º: pelo menos ~70% da janela coberta + 4 meses de histórico
+  // 3º: qualquer candidato (garante que sempre acha um espelho)
+  return pick(n, 6) || pick(Math.max(1, Math.ceil(n * 0.7)), 4) || pick(0, 0);
 }
 
 function _mkCartRow(forn, marca, o, anomes, grade, pares, sugerido, mirror) {
@@ -7148,6 +7182,60 @@ function buildInfoPanelHTML() {
           </thead>
           <tbody>${linhasDun}</tbody>
         </table>` : ''}
+        ${(() => {
+          const det = (window._cartCalcDetalhe && window._cartCalcDetalhe[opk]) || null;
+          if (!det || !det.mirror) return '';
+          const meses = Object.keys(det.mirrorMes).sort();
+          const espRefTxt = String(det.mirror).split('|||').join(' · ');
+          const _mp = String(det.mirror).split('|||');
+          const _escJ = s => String(s == null ? '' : s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+          const btnEspelho = `<div style="margin-top:14px;">
+            <button onclick="showHist('${_escJ(_mp[0])}','${_escJ(_mp[1]||'')}','${_escJ(forn)}','${_escJ(marca)}')" style="background:#7c3aed;color:#fff;border:none;padding:9px 16px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:12px;font-weight:800;letter-spacing:0.5px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">📊 Ver cálculo completo do espelho</button>
+            <div style="font-size:11px;color:#64748b;margin-top:6px;">Abre o gráfico do produto-espelho (${espRefTxt}) com histórico, outliers, rupturas e trimming — para conferir de onde vem a curva.</div>
+          </div>`;
+          const somaProj = Object.values((window._projCartMes && window._projCartMes[opk]) || {}).reduce((s,v)=>s+v,0);
+          const linhas = meses.map(am => {
+            const esp = det.mirrorMes[am] || 0;
+            const peso = det.totMirror > 0 ? esp / det.totMirror : 0;
+            const proj = Math.round(((window._projCartMes && window._projCartMes[opk]) || {})[am] || 0);
+            const destaque = am === mesSel;
+            return `<tr style="${destaque ? 'background:#f5f3ff;' : ''}">
+              <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;font-weight:${destaque?'800':'500'};">${fmtAMx(am)}${destaque?' ◄':''}</td>
+              <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;text-align:right;">${fmtI(esp)} CX</td>
+              <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;text-align:right;color:#64748b;">${(peso*100).toFixed(1)}%</td>
+              <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;text-align:right;color:#7c3aed;font-weight:700;">${fmtI(proj)} CX</td>
+            </tr>`;
+          }).join('');
+          return `
+            <div style="margin-top:22px;font-size:12px;font-weight:800;color:#334155;letter-spacing:0.5px;margin-bottom:8px;">🔎 VERIFICAÇÃO — CÁLCULO PELA CURVA DO ESPELHO</div>
+            <div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;padding:12px 16px;margin-bottom:10px;font-size:12px;color:#6b21a8;line-height:1.7;">
+              Espelho usado: <strong>${espRefTxt}</strong> ${det.ehManual ? '(manual)' : '(automático)'}<br>
+              Método de dimensionamento: <strong>${det.metodo}</strong><br>
+              Backlog total do item: <strong>${fmtI(det.totalBacklogCX)} CX</strong>${det.cartInWindowCX ? ` · dentro da janela: <strong>${fmtI(det.cartInWindowCX)} CX</strong>` : ' · <strong>datado fora da janela</strong>'}<br>
+              ${det.coveredShare != null ? `Fatia de cobertura (parte da curva do espelho nos meses com saldo): <strong>${(det.coveredShare*100).toFixed(1)}%</strong><br>` : ''}
+              Volume total distribuído na janela: <strong>${fmtI(det.fullTotCX)} CX</strong>${det.capAplicado ? ` <span style="color:#b45309;">(teto de ${det.cap}× aplicado — sem o teto seria ${fmtI(det.preCapCX)} CX)</span>` : ''}
+            </div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:6px;">Projeção de cada mês = <strong>Volume total (${fmtI(det.fullTotCX)} CX)</strong> × <strong>peso do mês na curva do espelho</strong>. Confira:</div>
+            <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+              <thead>
+                <tr style="background:#f8fafc;">
+                  <th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;letter-spacing:0.5px;">MÊS</th>
+                  <th style="padding:8px 12px;text-align:right;font-size:11px;color:#64748b;letter-spacing:0.5px;">ESPELHO (CX)</th>
+                  <th style="padding:8px 12px;text-align:right;font-size:11px;color:#64748b;letter-spacing:0.5px;">PESO</th>
+                  <th style="padding:8px 12px;text-align:right;font-size:11px;color:#64748b;letter-spacing:0.5px;">PROJEÇÃO DO ITEM</th>
+                </tr>
+              </thead>
+              <tbody>${linhas}
+                <tr style="background:#faf5ff;font-weight:800;">
+                  <td style="padding:6px 12px;">Total</td>
+                  <td style="padding:6px 12px;text-align:right;">${fmtI(det.totMirror)} CX</td>
+                  <td style="padding:6px 12px;text-align:right;">100%</td>
+                  <td style="padding:6px 12px;text-align:right;color:#7c3aed;">${fmtI(somaProj)} CX</td>
+                </tr>
+              </tbody>
+            </table>
+            ${btnEspelho}`;
+        })()}
       </div>`;
   }
 

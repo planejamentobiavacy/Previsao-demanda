@@ -4867,9 +4867,8 @@ function doRenderGradeTab() {
   // Pega TODAS as opcoes do allRows (mesmo as que não têm grade vinculada)
   // e também os DESCONTINUADOS mesmo com projeção 0, para que continuem visíveis (riscados)
   Object.keys(projOpcaoTotal).forEach(k => {
-    const ehDescontinuado = window._opcoesDesativadas && window._opcoesDesativadas.has(k);
     const ehNovoCarteira = window._carteiraNovos && window._carteiraNovos[k];
-    if ((projOpcaoTotal[k] > 0 || ehDescontinuado || ehNovoCarteira) && !gruposView[k]) {
+    if ((projOpcaoTotal[k] > 0 || ehNovoCarteira) && !gruposView[k]) {
       const parts = k.split('|||');
       gruposView[k] = {
         nome_familia: parts[0],
@@ -4965,6 +4964,8 @@ function doRenderGradeTab() {
     const opKeyClean = g.nome_familia + '|||' + g.desc_cor;
     // Produtos de coleção oculta não aparecem na lista (ficam fora da projeção)
     if (typeof _colecaoExcluida === 'function' && _colecaoExcluida(opKeyClean)) return '';
+    // Descontinuados NÃO aparecem na lista de demanda (continuam acessíveis pelo modal "⛔ Descontinuados")
+    if (window._opcoesDesativadas && window._opcoesDesativadas.has(opKeyClean)) return '';
     const isCarteira = !!(window._carteiraNovos && window._carteiraNovos[opKeyClean]);
     const isOpAtiva = !window._opcoesDesativadas || !window._opcoesDesativadas.has(opKeyClean);
     const emSellout = !isOpAtiva && (g.projOpcao > 0);   // descontinuado ainda esgotando estoque
@@ -5062,8 +5063,13 @@ function doRenderGradeTab() {
   // Sincroniza o glifo do menu "todos" com o estado atual dos visíveis
   const glyph = document.getElementById('chkTodosGlyph');
   if (glyph) {
-    const visiveis = gruposArr.filter(g => !(typeof _colecaoExcluida === 'function' && _colecaoExcluida(g.nome_familia + '|||' + g.desc_cor)));
-    const desat = visiveis.filter(g => window._opcoesDesativadas && window._opcoesDesativadas.has(g.nome_familia + '|||' + g.desc_cor)).length;
+    const visiveis = gruposArr.filter(g => {
+      const key = g.nome_familia + '|||' + g.desc_cor;
+      if (typeof _colecaoExcluida === 'function' && _colecaoExcluida(key)) return false;
+      if (window._opcoesDesativadas && window._opcoesDesativadas.has(key)) return false; // descontinuados ocultos
+      return true;
+    });
+    const desat = 0;   // descontinuados não são mais exibidos na lista
     if (!visiveis.length)            glyph.textContent = '☐';
     else if (desat === 0)            glyph.textContent = '☑';   // todos ativos
     else if (desat === visiveis.length) glyph.textContent = '☐'; // todos descontinuados

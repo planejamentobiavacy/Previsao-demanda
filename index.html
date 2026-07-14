@@ -3595,15 +3595,10 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
     //    O item novo herda a CURVA do produto-espelho, que já sai do modelo com os
     //    MESMOS cálculos dos demais produtos aplicados: detecção de outlier, tratamento
     //    de ruptura, pesos por período e trimming (a curva vem de projPorProdMes[espelho]).
-    //    O "Saldo a Faturar" da carteira é usado só para DIMENSIONAR o volume, com travas:
-    //      (a) piso de cobertura (SHARE_FLOOR) p/ a escala não disparar;
-    //      (b) teto de fator (CAP): o total projetado nunca passa de CAP× o backlog real.
-    //    IMPORTANTE: se o backlog do item cai FORA da janela projetada (ex.: pedidos
-    //    datados antes de 07/2026), usamos o backlog TOTAL do item (o.total) como volume,
-    //    distribuído pela curva do espelho — senão o item projetaria 0 e sumiria da lista.
-    const SHARE_FLOOR = 0.15;
-    const CAP = (typeof window._capEspelhoNovos === 'number' && window._capEspelhoNovos > 0)
-      ? window._capEspelhoNovos : 3;
+    //    O "Saldo a Faturar" (backlog) define o VOLUME TOTAL do item; a curva do espelho
+    //    define apenas a FORMA (distribuição entre os meses). O total projetado é EXATAMENTE
+    //    o backlog do item — sem extrapolar, sem teto — então a soma da carteira projetada
+    //    nunca ultrapassa o backlog real (~55k CX no total).
 
     // Saldo da carteira DENTRO da janela (CX) e backlog TOTAL do item (CX)
     const cartCXmes = {};
@@ -3619,40 +3614,32 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
     window._projCartMes[opk] = {};
 
     if (totMirror > 0 && totalBacklogCX > 0) {
-      // Define o volume total do item na janela
-      let fullTotCX, coveredShare = null, metodo;
-      if (cartInWindowCX > 0) {
-        // Há saldo dentro da janela → extrapola essa fatia pela curva do espelho
-        const somaMirrorCob = mesesProj.reduce(
-          (s, am) => s + (cartCXmes[am] > 0 ? (mirrorMes[am] || 0) : 0), 0);
-        coveredShare = somaMirrorCob / totMirror;
-        if (coveredShare < SHARE_FLOOR) coveredShare = SHARE_FLOOR;
-        fullTotCX = cartInWindowCX / coveredShare;
-        metodo = 'Escala pela fatia coberta (há saldo na janela)';
-      } else {
-        // Backlog está fora da janela → usa o backlog TOTAL como volume da janela
-        fullTotCX = totalBacklogCX;
-        metodo = 'Backlog total (saldo datado fora da janela)';
-      }
-      // Teto duro: nunca projetar mais que CAP× o backlog real do item
-      const preCapCX = fullTotCX;
-      const capAplicado = fullTotCX > totalBacklogCX * CAP;
-      if (capAplicado) fullTotCX = totalBacklogCX * CAP;
-
-      // Distribui o volume pela CURVA DO ESPELHO em TODOS os meses (herda outlier/ruptura/pesos)
+      // TOTAL = backlog do item; FORMA = curva do espelho (sem extrapolação, sem teto).
+      const paresAlvo = Math.round(totalBacklogCX * 12);   // total em pares = backlog do item
+      const paresPorMes = {};
+      let somaPares = 0, maiorMes = null, maiorVal = -1;
       mesesProj.forEach(anomes => {
-        const projCX = fullTotCX * ((mirrorMes[anomes] || 0) / totMirror);
-        const pares = Math.round(projCX * 12);
+        const w = (mirrorMes[anomes] || 0) / totMirror;   // peso do mês na curva do espelho
+        const pares = Math.round(paresAlvo * w);
+        paresPorMes[anomes] = pares;
+        somaPares += pares;
+        if ((mirrorMes[anomes] || 0) > maiorVal) { maiorVal = mirrorMes[anomes] || 0; maiorMes = anomes; }
+      });
+      // Corrige o resíduo de arredondamento no maior mês, p/ o total bater exatamente com o backlog
+      if (maiorMes && somaPares !== paresAlvo) paresPorMes[maiorMes] += (paresAlvo - somaPares);
+
+      mesesProj.forEach(anomes => {
+        const pares = Math.max(0, paresPorMes[anomes] || 0);
         window._projCartMes[opk][anomes] = pares / 12;
         if (pares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, 'ESPELHO', pares, true, mirror));
       });
 
       // Memória de cálculo (verificação no painel do item novo)
       window._cartCalcDetalhe[opk] = {
-        mirror, ehManual, metodo,
+        mirror, ehManual,
+        metodo: 'Backlog distribuído pela curva do espelho (total = backlog, sem extrapolar)',
         mirrorMes: mesesProj.reduce((a, am) => { a[am] = mirrorMes[am] || 0; return a; }, {}),
-        totMirror, cartInWindowCX, totalBacklogCX,
-        coveredShare, fullTotCX, preCapCX, capAplicado, cap: CAP
+        totMirror, cartInWindowCX, totalBacklogCX, fullTotCX: totalBacklogCX
       };
     } else if (cartInWindowCX > 0) {
       // Sem espelho, mas há saldo na janela → usa o saldo cru da carteira, por DUN

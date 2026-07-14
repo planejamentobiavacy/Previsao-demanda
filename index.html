@@ -7643,9 +7643,11 @@ function recalcularComMesesIgnorados() {
     });
 
     // 2. Aplica ajustes manuais — linhas travadas mantêm o qtdProj fixado pelo usuário
-    const travados = linhasMes.filter(r => r._ajusteManual === true);
-    const naoTravadosLivres = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada);
-    const totalTravado = travados.reduce((s,r) => s + (r.qtdProj || 0), 0);
+    const travados = linhasMes.filter(r => r._ajusteManual === true && !r._novoCarteira);
+    const carteira = linhasMes.filter(r => r._novoCarteira);   // projeção FIXA da carteira/espelho
+    const naoTravadosLivres = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada && !r._novoCarteira);
+    const totalTravado = travados.reduce((s,r) => s + (r.qtdProj || 0), 0)
+                       + carteira.reduce((s,r) => s + (r.qtdProj || 0), 0);
     const vendaRestante = Math.max(0, vendaT - totalTravado);
 
     // 3. Normaliza só os NÃO travados e NÃO ignorados, dividindo o restante
@@ -7657,6 +7659,12 @@ function recalcularComMesesIgnorados() {
       r.sharesDescartMin    = r.sharesDescartMinNovo;
       r.sharesDescartMax    = r.sharesDescartMaxNovo;
       r.totalMesesComShare  = r.totalMesesComShareNovo;
+
+      if (r._novoCarteira) {
+        // Projeção FIXA da carteira/espelho — não recalcula por share (share = 0)
+        r.partFinal = vendaT > 0 ? (r.qtdProj || 0) / vendaT : 0;
+        return;
+      }
 
       if (r._ajusteManual === true) {
         // Mantém qtdProj travado, calcula partFinal apenas para display
@@ -7676,7 +7684,7 @@ function recalcularComMesesIgnorados() {
     });
 
     // Corrige arredondamento — diferença vai pro maior (entre os NÃO travados e NÃO ignorados)
-    const ajustaveis = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada);
+    const ajustaveis = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada && !r._novoCarteira);
     const somaQtd = linhasMes.reduce((s,r) => s + r.qtdProj, 0);
     const diff = vendaT - somaQtd;
     if (diff !== 0 && ajustaveis.length > 0) {

@@ -3587,48 +3587,56 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
     // 2) Projeção CONFORME O ESPELHO em TODOS os meses.
     //    O item novo herda a CURVA do produto-espelho, que já sai do modelo com os
     //    MESMOS cálculos dos demais produtos aplicados: detecção de outlier, tratamento
-    //    de ruptura, pesos por período e trimming (a curva vem de projPorProdMes[espelho],
-    //    resultado do calcularTodos). O "Saldo a Faturar" da carteira é usado apenas para
-    //    DIMENSIONAR o volume (escala), com dois freios contra explosão:
-    //      (a) piso de cobertura (SHARE_FLOOR): se os meses com saldo representam uma fatia
-    //          pequena da curva do espelho, essa fatia é elevada a um piso p/ a escala não disparar;
-    //      (b) teto de fator (CAP): o total projetado nunca passa de CAP× o saldo real.
+    //    de ruptura, pesos por período e trimming (a curva vem de projPorProdMes[espelho]).
+    //    O "Saldo a Faturar" da carteira é usado só para DIMENSIONAR o volume, com travas:
+    //      (a) piso de cobertura (SHARE_FLOOR) p/ a escala não disparar;
+    //      (b) teto de fator (CAP): o total projetado nunca passa de CAP× o backlog real.
+    //    IMPORTANTE: se o backlog do item cai FORA da janela projetada (ex.: pedidos
+    //    datados antes de 07/2026), usamos o backlog TOTAL do item (o.total) como volume,
+    //    distribuído pela curva do espelho — senão o item projetaria 0 e sumiria da lista.
     const SHARE_FLOOR = 0.15;
     const CAP = (typeof window._capEspelhoNovos === 'number' && window._capEspelhoNovos > 0)
       ? window._capEspelhoNovos : 3;
 
-    // Saldo real da carteira por mês (CX) e total real (CX) — usado só p/ dimensionar
+    // Saldo da carteira DENTRO da janela (CX) e backlog TOTAL do item (CX)
     const cartCXmes = {};
-    let cartTotCX = 0;
+    let cartInWindowCX = 0;
     mesesProj.forEach(am => {
       const cx = (o.porMes[am] || 0) / 12;
       cartCXmes[am] = cx;
-      cartTotCX += cx;
+      cartInWindowCX += cx;
     });
+    const totalBacklogCX = (o.total || 0) / 12;
     const totMirror = mesesProj.reduce((s, am) => s + (mirrorMes[am] || 0), 0);
 
     window._projCartMes[opk] = {};
 
-    if (totMirror > 0 && cartTotCX > 0) {
-      // Fatia do espelho que cai nos meses cobertos pela carteira (com piso de segurança)
-      const somaMirrorCob = mesesProj.reduce(
-        (s, am) => s + (cartCXmes[am] > 0 ? (mirrorMes[am] || 0) : 0), 0);
-      let coveredShare = somaMirrorCob / totMirror;
-      if (coveredShare < SHARE_FLOOR) coveredShare = SHARE_FLOOR;
+    if (totMirror > 0 && totalBacklogCX > 0) {
+      // Define o volume total do item na janela
+      let fullTotCX;
+      if (cartInWindowCX > 0) {
+        // Há saldo dentro da janela → extrapola essa fatia pela curva do espelho
+        const somaMirrorCob = mesesProj.reduce(
+          (s, am) => s + (cartCXmes[am] > 0 ? (mirrorMes[am] || 0) : 0), 0);
+        let coveredShare = somaMirrorCob / totMirror;
+        if (coveredShare < SHARE_FLOOR) coveredShare = SHARE_FLOOR;
+        fullTotCX = cartInWindowCX / coveredShare;
+      } else {
+        // Backlog está fora da janela → usa o backlog TOTAL como volume da janela
+        fullTotCX = totalBacklogCX;
+      }
+      // Teto duro: nunca projetar mais que CAP× o backlog real do item
+      if (fullTotCX > totalBacklogCX * CAP) fullTotCX = totalBacklogCX * CAP;
 
-      // Total da janela, ancorado no saldo dos meses cobertos, com teto duro
-      let fullTotCX = cartTotCX / coveredShare;
-      if (fullTotCX > cartTotCX * CAP) fullTotCX = cartTotCX * CAP;
-
-      // Distribui o total pela CURVA DO ESPELHO em TODOS os meses (herda outlier/ruptura/pesos)
+      // Distribui o volume pela CURVA DO ESPELHO em TODOS os meses (herda outlier/ruptura/pesos)
       mesesProj.forEach(anomes => {
         const projCX = fullTotCX * ((mirrorMes[anomes] || 0) / totMirror);
         const pares = Math.round(projCX * 12);
         window._projCartMes[opk][anomes] = pares / 12;
         if (pares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, 'ESPELHO', pares, true, mirror));
       });
-    } else {
-      // Sem espelho utilizável → usa o saldo cru da carteira (só meses com saldo), por DUN
+    } else if (cartInWindowCX > 0) {
+      // Sem espelho, mas há saldo na janela → usa o saldo cru da carteira, por DUN
       mesesProj.forEach(anomes => {
         const gradesMes = o.gradesPorMes[anomes] || {};
         const duns = Object.keys(gradesMes);
@@ -3644,6 +3652,14 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
             allRows.push(_mkCartRow(forn, marca, o, anomes, 'CARTEIRA', paresMes, false, mirror));
           }
         }
+      });
+    } else if (totalBacklogCX > 0) {
+      // Sem espelho E backlog fora da janela → último recurso: distribui o backlog
+      // total igualmente pelos meses da janela, p/ o item não sumir da lista.
+      const paresPorMes = Math.round((o.total || 0) / mesesProj.length);
+      mesesProj.forEach(anomes => {
+        window._projCartMes[opk][anomes] = paresPorMes / 12;
+        if (paresPorMes > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, 'CARTEIRA', paresPorMes, true, mirror));
       });
     }
   });
@@ -4852,7 +4868,8 @@ function doRenderGradeTab() {
   // e também os DESCONTINUADOS mesmo com projeção 0, para que continuem visíveis (riscados)
   Object.keys(projOpcaoTotal).forEach(k => {
     const ehDescontinuado = window._opcoesDesativadas && window._opcoesDesativadas.has(k);
-    if ((projOpcaoTotal[k] > 0 || ehDescontinuado) && !gruposView[k]) {
+    const ehNovoCarteira = window._carteiraNovos && window._carteiraNovos[k];
+    if ((projOpcaoTotal[k] > 0 || ehDescontinuado || ehNovoCarteira) && !gruposView[k]) {
       const parts = k.split('|||');
       gruposView[k] = {
         nome_familia: parts[0],

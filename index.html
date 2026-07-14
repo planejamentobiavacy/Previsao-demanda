@@ -3562,6 +3562,7 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
     if ((histMeses[k] || 0) >= 4) palavrasPorMirror[k] = _pal(k.replace('|||', ' '));
   });
 
+  window._projCartMes = {};   // { opk: { anomes: CX } } — projeção mensal do item novo (via espelho)
   Object.keys(novos).forEach(opk => {
     const o = novos[opk];
 
@@ -3583,19 +3584,20 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
       window._espelhoRefPorOpcao[opk] = mirror;   // opk do espelho (p/ herdar coleção etc.)
     }
 
-    // 2) Projeção CONFORME O ESPELHO, com travas contra explosão.
-    //    • Meses com pedido na carteira → mantêm o valor REAL confirmado.
-    //    • Meses sem carteira → seguem a CURVA do espelho, mas o total do produto
-    //      é ancorado no saldo real e limitado por dois freios:
-    //        (a) piso de cobertura: se os meses cobertos representam uma fatia
-    //            muito pequena da curva do espelho, essa fatia é elevada a um piso
-    //            (SHARE_FLOOR) para a escala não disparar;
-    //        (b) teto de fator: o total projetado nunca passa de CAP× o saldo real.
-    const SHARE_FLOOR = 0.15;                        // fatia mínima dos meses cobertos
+    // 2) Projeção CONFORME O ESPELHO em TODOS os meses.
+    //    O item novo herda a CURVA do produto-espelho, que já sai do modelo com os
+    //    MESMOS cálculos dos demais produtos aplicados: detecção de outlier, tratamento
+    //    de ruptura, pesos por período e trimming (a curva vem de projPorProdMes[espelho],
+    //    resultado do calcularTodos). O "Saldo a Faturar" da carteira é usado apenas para
+    //    DIMENSIONAR o volume (escala), com dois freios contra explosão:
+    //      (a) piso de cobertura (SHARE_FLOOR): se os meses com saldo representam uma fatia
+    //          pequena da curva do espelho, essa fatia é elevada a um piso p/ a escala não disparar;
+    //      (b) teto de fator (CAP): o total projetado nunca passa de CAP× o saldo real.
+    const SHARE_FLOOR = 0.15;
     const CAP = (typeof window._capEspelhoNovos === 'number' && window._capEspelhoNovos > 0)
-      ? window._capEspelhoNovos : 3;                 // teto: total ≤ CAP × saldo real
+      ? window._capEspelhoNovos : 3;
 
-    // Carteira real por mês (em CX) e total real (CX)
+    // Saldo real da carteira por mês (CX) e total real (CX) — usado só p/ dimensionar
     const cartCXmes = {};
     let cartTotCX = 0;
     mesesProj.forEach(am => {
@@ -3605,47 +3607,45 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
     });
     const totMirror = mesesProj.reduce((s, am) => s + (mirrorMes[am] || 0), 0);
 
-    // Fatia do espelho que cai nos meses cobertos pela carteira (com piso de segurança)
-    let coveredShare = 0;
-    if (totMirror > 0) {
+    window._projCartMes[opk] = {};
+
+    if (totMirror > 0 && cartTotCX > 0) {
+      // Fatia do espelho que cai nos meses cobertos pela carteira (com piso de segurança)
       const somaMirrorCob = mesesProj.reduce(
         (s, am) => s + (cartCXmes[am] > 0 ? (mirrorMes[am] || 0) : 0), 0);
-      coveredShare = somaMirrorCob / totMirror;
-    }
-    if (coveredShare < SHARE_FLOOR) coveredShare = SHARE_FLOOR;
+      let coveredShare = somaMirrorCob / totMirror;
+      if (coveredShare < SHARE_FLOOR) coveredShare = SHARE_FLOOR;
 
-    // Total implícito da janela, ancorado no saldo dos meses cobertos, com teto duro
-    let fullTotCX = (totMirror > 0 && cartTotCX > 0) ? (cartTotCX / coveredShare) : cartTotCX;
-    if (fullTotCX > cartTotCX * CAP) fullTotCX = cartTotCX * CAP;
+      // Total da janela, ancorado no saldo dos meses cobertos, com teto duro
+      let fullTotCX = cartTotCX / coveredShare;
+      if (fullTotCX > cartTotCX * CAP) fullTotCX = cartTotCX * CAP;
 
-    // Volume a distribuir nos meses SEM carteira (pela curva do espelho)
-    const restanteCX = Math.max(0, fullTotCX - cartTotCX);
-    const somaMirrorNaoCob = mesesProj.reduce(
-      (s, am) => s + (cartCXmes[am] > 0 ? 0 : (mirrorMes[am] || 0)), 0);
-
-    // 3) Injeta cada mês projetado
-    mesesProj.forEach(anomes => {
-      const gradesMes = o.gradesPorMes[anomes] || {};
-      const duns = Object.keys(gradesMes);
-      const paresMes = o.porMes[anomes] || 0;
-
-      if (paresMes > 0) {
-        // Mês COBERTO pela carteira → usa o pedido confirmado (por DUN)
-        if (duns.length) {
-          duns.forEach(dun => {
-            const pares = gradesMes[dun] || 0;
-            if (pares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, dun, pares, false, mirror));
-          });
-        } else {
-          allRows.push(_mkCartRow(forn, marca, o, anomes, 'CARTEIRA', paresMes, false, mirror));
+      // Distribui o total pela CURVA DO ESPELHO em TODOS os meses (herda outlier/ruptura/pesos)
+      mesesProj.forEach(anomes => {
+        const projCX = fullTotCX * ((mirrorMes[anomes] || 0) / totMirror);
+        const pares = Math.round(projCX * 12);
+        window._projCartMes[opk][anomes] = pares / 12;
+        if (pares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, 'ESPELHO', pares, true, mirror));
+      });
+    } else {
+      // Sem espelho utilizável → usa o saldo cru da carteira (só meses com saldo), por DUN
+      mesesProj.forEach(anomes => {
+        const gradesMes = o.gradesPorMes[anomes] || {};
+        const duns = Object.keys(gradesMes);
+        const paresMes = o.porMes[anomes] || 0;
+        window._projCartMes[opk][anomes] = paresMes / 12;
+        if (paresMes > 0) {
+          if (duns.length) {
+            duns.forEach(dun => {
+              const pares = gradesMes[dun] || 0;
+              if (pares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, dun, pares, false, mirror));
+            });
+          } else {
+            allRows.push(_mkCartRow(forn, marca, o, anomes, 'CARTEIRA', paresMes, false, mirror));
+          }
         }
-      } else if (restanteCX > 0 && somaMirrorNaoCob > 0 && (mirrorMes[anomes] || 0) > 0) {
-        // Mês SEM carteira → SUGESTÃO pela curva do espelho (dentro do total travado)
-        const sugCX = restanteCX * ((mirrorMes[anomes] || 0) / somaMirrorNaoCob);
-        const sugPares = Math.round(sugCX * 12);
-        if (sugPares > 0) allRows.push(_mkCartRow(forn, marca, o, anomes, 'ESPELHO', sugPares, true, mirror));
-      }
-    });
+      });
+    }
   });
 }
 
@@ -7051,55 +7051,53 @@ function buildInfoPanelHTML() {
     const o = (window._carteiraNovos || {})[opk];
     const fmtI = n => Math.round(n).toLocaleString('pt-BR');
     const fmtAMx = m => `${m.substring(4,6)}/${m.substring(0,4)}`;
+    const projMes = (window._projCartMes && window._projCartMes[opk]) || {};
+    const projCXsel = Math.round(projMes[mesSel] || 0);
+    const espRef = (window._espelhoRefPorOpcao && window._espelhoRefPorOpcao[opk])
+      ? String(window._espelhoRefPorOpcao[opk]).split('|||').join(' · ')
+      : (r._espelhoRef ? String(r._espelhoRef).split('|||').join(' · ') : null);
+    const paresMesCart = (o && o.porMes[mesSel]) || 0;
     const gradesMes = (o && o.gradesPorMes[mesSel]) || {};
-    const paresMes = (o && o.porMes[mesSel]) || 0;
+    const totalTodosMeses = o ? Object.values(o.porMes).reduce((s,v)=>s+v,0) : 0;
     const linhasDun = Object.keys(gradesMes).sort().map(dun => `
       <tr>
         <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-size:12px;">${dun}</td>
         <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;text-align:right;">${fmtI(gradesMes[dun])} pares</td>
         <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;text-align:right;color:#16a34a;font-weight:700;">${fmtI(gradesMes[dun]/12)} CX</td>
       </tr>`).join('');
-    const totalTodosMeses = o ? Object.values(o.porMes).reduce((s,v)=>s+v,0) : 0;
-    const ehSugerido = !!r._sugeridoEspelho;   // mês estimado pelo espelho (sem carteira)
-    const espRef = r._espelhoRef ? (String(r._espelhoRef).split('|||').join(' · ')) : null;
-    const sugCX = ehSugerido ? (r.qtdProj || 0) : 0;
-
-    const blocoMes = ehSugerido ? `
-        <div style="background:#faf5ff;border:1px solid #d8b4fe;border-left:4px solid #9333ea;border-radius:8px;padding:16px 18px;margin-bottom:18px;">
-          <div style="font-weight:800;color:#6d28d9;font-size:13px;margin-bottom:6px;">🪞 ${fmtAMx(mesSel)}: demanda SUGERIDA pelo espelho</div>
-          <div style="font-size:12.5px;color:#6b21a8;line-height:1.6;">
-            Este mês <strong>não tem carteira</strong>. A demanda foi estimada usando a curva do produto-espelho
-            <strong>${espRef || '—'}</strong>, ajustada ao volume da carteira deste produto (nos meses que ela cobre).
-            Sugestão: <strong>${fmtI(sugCX)} CX</strong> (${fmtI(sugCX*12)} pares).
-          </div>
-        </div>` : `
-        <div style="flex:1;min-width:180px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
-          <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">CARTEIRA EM ${fmtAMx(mesSel)}</div>
-          <div style="font-size:22px;font-weight:800;color:#16a34a;margin-top:4px;">${fmtI(paresMes)} pares</div>
-          <div style="font-size:13px;color:#166534;">= ${fmtI(paresMes/12)} CX projetadas</div>
-        </div>`;
 
     return `
       ${seletorMes}
       <div style="padding:8px 4px 24px;">
-        <div style="background:#f0fdf4;border:1px solid #86efac;border-left:4px solid #16a34a;border-radius:8px;padding:16px 18px;margin-bottom:18px;">
-          <div style="font-weight:800;color:#166534;font-size:14px;margin-bottom:6px;">🆕 Produto novo da Carteira Alpa</div>
-          <div style="font-size:12.5px;color:#15803d;line-height:1.6;">
-            Este produto <strong>não tem histórico de vendas</strong> (o DUN não existe na base). Nos meses <strong>cobertos pela carteira</strong>,
-            a projeção vem direto do <strong>"Saldo a Faturar"</strong> (pares ÷ 12 = CX). Nos meses <strong>sem carteira</strong>, a demanda é
-            <strong>sugerida pelo produto-espelho</strong> ${espRef ? `(<strong>${espRef}</strong>)` : ''}, ancorada no volume da carteira.
+        <div style="background:#faf5ff;border:1px solid #d8b4fe;border-left:4px solid #9333ea;border-radius:8px;padding:16px 18px;margin-bottom:18px;">
+          <div style="font-weight:800;color:#6d28d9;font-size:14px;margin-bottom:6px;">🆕 Produto novo da Carteira Alpa — projeção via espelho</div>
+          <div style="font-size:12.5px;color:#6b21a8;line-height:1.6;">
+            Este produto <strong>não tem histórico próprio</strong>. A projeção segue a <strong>curva do produto-espelho</strong>
+            ${espRef ? `(<strong>${espRef}</strong>)` : ''}, que é calculada com os <strong>mesmos critérios dos demais produtos</strong>:
+            detecção de outlier, tratamento de ruptura, pesos por período e trimming. O <strong>"Saldo a Faturar"</strong> da carteira
+            é usado apenas para <strong>dimensionar o volume</strong> (com trava para não inflar).
           </div>
         </div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px;">
-          ${blocoMes}
+          <div style="flex:1;min-width:180px;background:#fff;border:1px solid #d8b4fe;border-radius:8px;padding:14px 16px;">
+            <div style="font-size:11px;color:#6d28d9;font-weight:700;letter-spacing:0.5px;">PROJEÇÃO (VIA ESPELHO) — ${fmtAMx(mesSel)}</div>
+            <div style="font-size:22px;font-weight:800;color:#7c3aed;margin-top:4px;">${fmtI(projCXsel)} CX</div>
+            <div style="font-size:13px;color:#6b21a8;">= ${fmtI(projCXsel*12)} pares</div>
+          </div>
+          ${paresMesCart > 0 ? `
+          <div style="flex:1;min-width:180px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:14px 16px;">
+            <div style="font-size:11px;color:#166534;font-weight:700;letter-spacing:0.5px;">CARTEIRA CONFIRMADA — ${fmtAMx(mesSel)} (referência)</div>
+            <div style="font-size:22px;font-weight:800;color:#16a34a;margin-top:4px;">${fmtI(paresMesCart)} pares</div>
+            <div style="font-size:13px;color:#166534;">= ${fmtI(paresMesCart/12)} CX de saldo a faturar</div>
+          </div>` : ''}
           <div style="flex:1;min-width:180px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;">
             <div style="font-size:11px;color:#64748b;font-weight:700;letter-spacing:0.5px;">TOTAL NA CARTEIRA (TODOS OS MESES)</div>
             <div style="font-size:22px;font-weight:800;color:#0f172a;margin-top:4px;">${fmtI(totalTodosMeses)} pares</div>
             <div style="font-size:13px;color:#475569;">= ${fmtI(totalTodosMeses/12)} CX · ${o ? o.duns.size : 0} grade(s)/DUN</div>
           </div>
         </div>
-        ${ehSugerido ? '' : `
-        <div style="font-size:12px;font-weight:800;color:#334155;letter-spacing:0.5px;margin-bottom:8px;">DETALHE POR DUN — ${fmtAMx(mesSel)}</div>
+        ${Object.keys(gradesMes).length ? `
+        <div style="font-size:12px;font-weight:800;color:#334155;letter-spacing:0.5px;margin-bottom:8px;">CARTEIRA (REFERÊNCIA) POR DUN — ${fmtAMx(mesSel)}</div>
         <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
           <thead>
             <tr style="background:#f8fafc;">
@@ -7108,8 +7106,8 @@ function buildInfoPanelHTML() {
               <th style="padding:8px 12px;text-align:right;font-size:11px;color:#64748b;letter-spacing:0.5px;">EM CX</th>
             </tr>
           </thead>
-          <tbody>${linhasDun || '<tr><td colspan="3" style="padding:14px;text-align:center;color:#94a3b8;">Sem carteira neste mês.</td></tr>'}</tbody>
-        </table>`}
+          <tbody>${linhasDun}</tbody>
+        </table>` : ''}
       </div>`;
   }
 

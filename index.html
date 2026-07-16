@@ -7378,28 +7378,33 @@ function buildInfoPanelHTML() {
         </div>
       </div>
 
-      ${(r.indiceSazonal !== undefined && r.indiceSazonal !== 1) ? `
+      ${((r.indiceSazonal !== undefined && r.indiceSazonal !== 1) || r._sazUsouEspelho) ? `
       <!-- Passo Sazonalidade -->
       <div style="margin-bottom:18px;padding:16px 20px;background:#faf5ff;border:1px solid #e9d5ff;border-left:4px solid #9333ea;border-radius:6px;">
         <div style="font-size:11px;font-weight:800;color:#9333ea;letter-spacing:1.2px;margin-bottom:8px;">🌊 PASSO 2.5 · AJUSTE SAZONAL</div>
         <div style="font-size:13px;color:#475569;margin-bottom:8px;">
           Ajuste sazonal do mês projetado — o índice combina o padrão do produto com o da marca
         </div>
-        ${r._sazUsouReprimido ? `
+        ${r._sazUsouEspelho ? `
+          <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:5px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#5b21b6;">
+            🪞 Este produto <strong>herda a sazonalidade do ESPELHO${r._espelhoCor ? ': ' + r._espelhoCor : ''}</strong> ${r._espelhoManualFlag ? '(escolhido manualmente)' : '(automático)'}. O índice sazonal deste mês vem da <strong>curva do espelho</strong>, não da marca.
+          </div>
+        ` : ''}
+        ${r._sazUsouReprimido && !r._sazUsouEspelho ? `
           <div style="background:#ffedd5;border:1px solid #fdba74;border-radius:5px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#9a3412;">
             🟠 Este mês teve <strong>pico reprimido</strong> (ruptura, mas com venda alta). Usa o <strong>maior entre o índice do próprio produto e o da marca</strong> (${(r._sazIndiceProduto||1).toFixed(2)}× vs ${(r._sazIndiceMarca||1).toFixed(2)}×): a venda represada é um piso, então se ela já é forte o produto mantém seu pico; senão, a curva da marca preenche.
           </div>
         ` : ''}
-        ${r._sazUsouMedia && !r._sazUsouReprimido ? `
+        ${r._sazUsouMedia && !r._sazUsouReprimido && !r._sazUsouEspelho ? `
           <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:5px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#92400e;">
             🏷️ Este mês teve <strong>ruptura de estoque</strong> no histórico do produto. Como o número gravado foi limitado pela falta de estoque, ele é descartado e a projeção <strong>segue a curva sazonal da MARCA</strong> (o padrão agregado de todos os produtos que tinham estoque) — refletindo a sazonalidade real do período.
           </div>
         ` : ''}
-        ${r._sazUsouFallback && !r._sazUsouMedia && !r._sazUsouReprimido ? `
+        ${r._sazUsouFallback && !r._sazUsouMedia && !r._sazUsouReprimido && !r._sazUsouEspelho ? `
           <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:5px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#92400e;">
             ⚠️ Este produto <strong>não tem histórico</strong> deste mês. A projeção segue <strong>a curva sazonal da MARCA</strong> como referência.
           </div>
-        ` : (r._sazConfianca !== undefined && r._sazConfianca < 1 && !r._sazUsouMedia && !r._sazUsouReprimido ? `
+        ` : (r._sazConfianca !== undefined && r._sazConfianca < 1 && !r._sazUsouMedia && !r._sazUsouReprimido && !r._sazUsouEspelho ? `
           <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:5px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#1e40af;">
             🔀 Blend: <strong>${Math.round(r._sazConfianca*100)}%</strong> sazonalidade do produto (${r._sazOcorrencias} ocorrência${r._sazOcorrencias>1?'s':''}) + <strong>${Math.round((1-r._sazConfianca)*100)}%</strong> da marca
           </div>

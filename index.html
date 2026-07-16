@@ -6508,30 +6508,15 @@ function filterGradeTable() {
       const show = currentOpMatchesHeader || opMatchesGrade;
       r.style.display = show ? '' : 'none';
       if (show) opcoesVisiveis++;
-      // Expande automaticamente se tem match em grade
-      if (iconEl && opMatchesGrade) iconEl.textContent = '▼';
-      else if (iconEl) iconEl.textContent = '▶';
+      // Busca mantém os grupos RECOLHIDOS (exibição reduzida) — expande manualmente se quiser
+      if (iconEl) iconEl.textContent = '▶';
     } else if (r.classList.contains('grade-row')) {
-      const opMatchesGrade = currentOpKey && opcoesComMatch.has(currentOpKey);
-      if (opMatchesGrade) {
-        // Se a opção tem match nas grades, mostra apenas as grades com match
-        // OU se a opção também dá match no header, mostra todas as grades
-        const txt = r.dataset.search || '';
-        const gradeMatch = txt.includes(q);
-        const show = gradeMatch || currentOpMatchesHeader;
-        r.style.display = show ? 'table-row' : 'none';
-        if (show) gradesVisiveis++;
-      } else if (currentOpMatchesHeader) {
-        // Opção deu match no header mas nenhuma grade — mostra todas as grades da opção
-        r.style.display = 'table-row';
-        gradesVisiveis++;
-      } else {
-        r.style.display = 'none';
-      }
+      // Grades ficam ocultas durante a busca; o usuário expande a opção manualmente
+      r.style.display = 'none';
     }
   });
 
-  if (infoEl) infoEl.textContent = `${opcoesVisiveis} opção(ões) · ${gradesVisiveis} grade(s)`;
+  if (infoEl) infoEl.textContent = `${opcoesVisiveis} opção(ões)`;
 }
 
 function filterCompraTable() {

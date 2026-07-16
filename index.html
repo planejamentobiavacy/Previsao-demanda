@@ -3205,6 +3205,10 @@ function calcularTodos() {
           }
         }
         indiceSazonalProduto[k] = indices;
+        if (!window._indiceSazonalProdutoDbg) window._indiceSazonalProdutoDbg = {};
+        window._indiceSazonalProdutoDbg[k] = indices;
+        if (!window._indiceProprioDbg) window._indiceProprioDbg = {};
+        window._indiceProprioDbg[k] = { ...indiceProprio };
         // Guarda a info de vizinhos/média para o painel
         if (!window._sazUsouVizinhos) window._sazUsouVizinhos = {};
         window._sazUsouVizinhos[k] = usouVizinhos;

@@ -6208,11 +6208,12 @@ function aplicarDescontinuadosERecalcular() {
     // O total da marca (vendaT) inclui os produtos novos → históricos são reponderados no que sobra
     const vendaRestante = Math.max(0, vendaT - totalFixo);
 
-    // Redistribui o restante entre os ativos livres, proporcional ao share
-    const somaSharesLivres = livres.reduce((s,r) => s + (r.shareMedio || 0), 0);
+    // Redistribui o restante entre os ativos livres, proporcional ao share AJUSTADO
+    // pela sazonalidade/espelho (r.indiceSazonal) — senão apagaria o efeito do espelho.
+    const somaSharesLivres = livres.reduce((s,r) => s + (r.shareMedio || 0) * (r.indiceSazonal || 1), 0);
     livres.forEach(r => {
       if (somaSharesLivres > 0) {
-        const proporcao = r.shareMedio / somaSharesLivres;
+        const proporcao = ((r.shareMedio || 0) * (r.indiceSazonal || 1)) / somaSharesLivres;
         r.qtdProj = Math.round(proporcao * vendaRestante);
         r.partFinal = vendaT > 0 ? r.qtdProj / vendaT : 0;
       } else {
@@ -7764,8 +7765,10 @@ function recalcularComMesesIgnorados() {
                        + carteira.reduce((s,r) => s + (r.qtdProj || 0), 0);
     const vendaRestante = Math.max(0, vendaT - totalTravado);
 
-    // 3. Normaliza só os NÃO travados e NÃO ignorados, dividindo o restante
-    const somaSharesLivres = naoTravadosLivres.reduce((s,r) => s + r.shareMedioNovo, 0);
+    // 3. Normaliza só os NÃO travados e NÃO ignorados, dividindo o restante.
+    //    Reaplica o índice sazonal (e o do espelho) já gravado em r.indiceSazonal —
+    //    senão o recálculo apagaria a sazonalidade/espelho aplicados no cálculo principal.
+    const somaSharesLivres = naoTravadosLivres.reduce((s,r) => s + (r.shareMedioNovo || 0) * (r.indiceSazonal || 1), 0);
 
     linhasMes.forEach(r => {
       r.shareMedio          = r.shareMedioNovo;
@@ -7787,7 +7790,8 @@ function recalcularComMesesIgnorados() {
         r.partFinal = 0;
         r.qtdProj   = 0;
       } else if (somaSharesLivres > 0) {
-        r.partFinal = r.shareMedioNovo / somaSharesLivres;
+        const shAj = (r.shareMedioNovo || 0) * (r.indiceSazonal || 1);   // share ajustado pela sazonalidade/espelho
+        r.partFinal = shAj / somaSharesLivres;
         r.qtdProj   = Math.round(r.partFinal * vendaRestante);
         // partFinal recalculado relativo ao vendaT total para consistência
         r.partFinal = vendaT > 0 ? r.qtdProj / vendaT : 0;

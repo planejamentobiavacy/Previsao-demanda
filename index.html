@@ -1315,6 +1315,28 @@
   </div>
 </div>
 
+<div id="vinculoModal" style="display:none;position:fixed;inset:0;z-index:9300;background:rgba(15,30,61,0.55);backdrop-filter:blur(3px);" onclick="if(event.target===this)fecharVinculoModal()">
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;width:min(560px,94vw);box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
+    <div style="background:#3730a3;padding:16px 22px;">
+      <div style="color:#fff;font-weight:800;font-size:15px;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.5px;">🔗 Vincular a um produto existente</div>
+      <div style="color:rgba(255,255,255,0.7);font-size:11px;margin-top:2px;" id="vinculoPickerTitulo"></div>
+    </div>
+    <div style="padding:20px 22px;">
+      <p style="font-size:12.5px;color:#475569;margin:0 0 12px;">Este item da carteira é o mesmo de um produto que <strong>já existe no histórico</strong>? Escolha o produto existente. A carteira deste item passa a contar como carteira do produto histórico, e o item "novo" some da lista — vira <strong>uma opção só</strong>.</p>
+      <input type="text" id="vinculoBusca" placeholder="🔍 Buscar produto existente (família ou cor)..." oninput="filtrarVinculoLista()"
+        style="width:100%;padding:9px 12px;border:1.5px solid #c7d2fe;border-radius:6px;font-size:13px;font-family:'Barlow',sans-serif;outline:none;background:#fff;margin-bottom:8px;box-sizing:border-box;">
+      <div id="vinculoLista" style="max-height:300px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;">
+        <div id="vinculoSelecionadoLabel" style="font-size:11.5px;color:#3730a3;font-weight:700;"></div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="fecharVinculoModal()" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;padding:8px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">Cancelar</button>
+          <button onclick="confirmarVinculo()" style="background:#3730a3;border:none;color:#fff;padding:8px 18px;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;">Vincular e recalcular</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL PRODUTOS DESCONTINUADOS -->
 <div id="descontinuadosModal" style="display:none;position:fixed;inset:0;z-index:9100;background:rgba(15,30,61,0.55);backdrop-filter:blur(3px);" onclick="if(event.target===this)fecharDescontinuados()">
   <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;width:min(1300px,97vw);max-height:88vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
@@ -1779,12 +1801,14 @@ function computeCarteiraNovos() {
   );
   const novos = {};
   let jaExiste = 0;
+  const vinculo = window._carteiraVinculoManual || {};   // { novoKey: histKey } — vínculo manual
   carteiraData.forEach(r => {
     const dunDig = soDig(r.dun);
     if (dunDig && gradesHist.has(dunDig)) { jaExiste++; return; }   // já tem histórico → projeção normal
     const familia = (r.desc + (r.cor ? ' ' + r.cor : '')).trim() || 'CARTEIRA';
     const cor = r.nomeCor || r.cor || '—';
     const opk = familia + '|||' + cor;
+    if (vinculo[opk]) { jaExiste++; return; }   // vinculado manualmente a um produto existente → não é novo
     if (!novos[opk]) novos[opk] = { nome_familia: familia, desc_cor: cor, porMes:{}, gradesPorMes:{}, duns:new Set(), total:0 };
     const o = novos[opk];
     o.duns.add(r.dun);
@@ -1811,7 +1835,10 @@ function computeCarteiraNovos() {
     const dunDig = soDig(r.dun);
     let prodKey;
     if (dunDig && gradeToProd[dunDig]) prodKey = gradeToProd[dunDig];   // já existe → produto do histórico
-    else prodKey = ((r.desc + (r.cor ? ' ' + r.cor : '')).trim() || 'CARTEIRA') + '|||' + (r.nomeCor || r.cor || '—'); // novo
+    else {
+      const novoKey = ((r.desc + (r.cor ? ' ' + r.cor : '')).trim() || 'CARTEIRA') + '|||' + (r.nomeCor || r.cor || '—');
+      prodKey = vinculo[novoKey] || novoKey;   // se vinculado manualmente, atribui ao produto histórico
+    }
     if (!cartProd[prodKey]) cartProd[prodKey] = { porMes: {}, total: 0 };
     cartProd[prodKey].total += r.saldo;
     if (r.anomes) cartProd[prodKey].porMes[r.anomes] = (cartProd[prodKey].porMes[r.anomes] || 0) + r.saldo;
@@ -5023,6 +5050,7 @@ function doRenderGradeTab() {
         <strong style="${dimName}${isCarteira ? 'color:#166534;' : ''}">${g.nome_familia}</strong>
         <span style="${dimName}"> · ${g.desc_cor}</span>
         ${isCarteira ? '<span title="Produto NOVO em carteira (sem histórico de vendas). A projeção vem da Carteira Alpa: Soma de Saldo a Faturar por mês de faturamento." style="margin-left:8px;background:#16a34a;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">🆕 CARTEIRA</span>' : ''}
+        ${isCarteira ? `<span onclick="event.stopPropagation(); abrirVinculoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Este item da carteira é o mesmo de um produto que já existe no histórico? Clique para vinculá-los e tratar como UMA opção só (a carteira gruda no produto histórico)." style="margin-left:6px;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #c7d2fe;cursor:pointer;">🔗 VINCULAR A EXISTENTE</span>` : ''}
         ${emSellout ? '<span title="Produto descontinuado — vendendo o estoque de forma decrescente até esgotar. Estes valores ficam chumbados e o restante do mês é redistribuído entre os ativos." style="margin-left:8px;background:#f59e0b;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">⏳ ESGOTANDO ESTOQUE</span>' : ''}
         ${strike ? '<span style="margin-left:8px;background:#dc2626;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;">DESCONTINUADO</span>' : ''}
         ${(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean]) ? `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Um ou mais meses projetados não têm histórico próprio deste produto — usando sazonalidade da MARCA. Clique para escolher um produto-espelho." style="margin-left:8px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #fde68a;cursor:pointer;">⚠️ SAZ. MARCA (${[...new Set(window._fallbackPorOpcao[opKeyClean].meses)].map(am => am.substring(4,6)+'/'+am.substring(2,4)).join(', ')}) 🪞</span>` : ''}
@@ -5863,6 +5891,95 @@ function confirmarEspelho() {
     if (histAberto && ctx) setTimeout(() => showHist(ctx.familia, ctx.cor, ctx.forn, ctx.marca), 120);
   }, 60);
 }
+
+// ── VÍNCULO MANUAL: item novo da carteira → produto que já existe no histórico ──
+function abrirVinculoPicker(familia, cor) {
+  const novoKey = familia + '|||' + cor;
+  window._vinculoAlvo = novoKey;
+  if (!window._carteiraVinculoManual) window._carteiraVinculoManual = {};
+  window._vinculoEscolhido = window._carteiraVinculoManual[novoKey] || null;
+
+  // Candidatos = produtos que JÁ existem no histórico (não são de carteira)
+  const AR = (window._exportData && window._exportData.allRows) || [];
+  const vistos = new Set();
+  const cands = [];
+  AR.forEach(r => {
+    if (r._novoCarteira) return;
+    const k = r.nome_familia + '|||' + r.desc_cor;
+    if (vistos.has(k)) return;
+    vistos.add(k);
+    cands.push({ key: k, familia: r.nome_familia, cor: r.desc_cor, hist: r.totalMesesComShare || 0 });
+  });
+  cands.sort((a, b) => (b.hist - a.hist) || a.familia.localeCompare(b.familia));
+  window._vinculoCandidatos = cands;
+
+  const tit = document.getElementById('vinculoPickerTitulo');
+  if (tit) tit.textContent = 'Item da carteira: ' + familia + ' · ' + cor;
+  const busca = document.getElementById('vinculoBusca');
+  if (busca) busca.value = '';
+  renderVinculoLista('');
+  document.getElementById('vinculoModal').style.display = 'block';
+  if (busca) setTimeout(() => busca.focus(), 50);
+}
+
+function renderVinculoLista(termo) {
+  const lista = document.getElementById('vinculoLista');
+  if (!lista) return;
+  const cands = window._vinculoCandidatos || [];
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  const t = (termo || '').trim().toLowerCase();
+  const filtrados = t ? cands.filter(c => (c.familia + ' ' + c.cor).toLowerCase().includes(t)) : cands;
+  const escolhido = window._vinculoEscolhido || null;
+
+  const linhaItem = (val, texto, sub, sel) => `<div onclick="selecionarVinculo(${val === null ? 'null' : "'" + esc(val) + "'"})" style="padding:9px 12px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px;${sel ? 'background:#e0e7ff;' : 'background:#fff;'}" onmouseover="this.style.background='#eef2ff'" onmouseout="this.style.background='${sel ? '#e0e7ff' : '#fff'}'">
+      <span style="color:#1e293b;${sel ? 'font-weight:700;' : ''}">${texto}</span>
+      <span style="color:#94a3b8;font-size:11px;white-space:nowrap;">${sub}${sel ? ' ✓' : ''}</span>
+    </div>`;
+
+  let html = '';
+  // Opção de DESVINCULAR (voltar a ser produto novo)
+  if (!t) html += linhaItem(null, '🚫 Não vincular (manter como produto novo)', '', escolhido === null);
+  if (!filtrados.length && t) {
+    html += '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px;">Nenhum produto encontrado para "' + esc(termo) + '"</div>';
+  } else {
+    html += filtrados.map(c => linhaItem(c.key, c.familia + ' · ' + c.cor, c.hist + ' meses', escolhido === c.key)).join('');
+  }
+  lista.innerHTML = html;
+  const lbl = document.getElementById('vinculoSelecionadoLabel');
+  if (lbl) lbl.textContent = escolhido ? 'Vincular a: ' + escolhido.split('|||').join(' · ') : 'Sem vínculo (produto novo)';
+}
+
+function filtrarVinculoLista() {
+  const busca = document.getElementById('vinculoBusca');
+  renderVinculoLista(busca ? busca.value : '');
+}
+
+function selecionarVinculo(val) {
+  window._vinculoEscolhido = val;
+  const busca = document.getElementById('vinculoBusca');
+  renderVinculoLista(busca ? busca.value : '');
+}
+
+function fecharVinculoModal() {
+  const m = document.getElementById('vinculoModal');
+  if (m) m.style.display = 'none';
+}
+
+function confirmarVinculo() {
+  const novoKey = window._vinculoAlvo;
+  if (!novoKey) { fecharVinculoModal(); return; }
+  if (!window._carteiraVinculoManual) window._carteiraVinculoManual = {};
+  const escolhido = window._vinculoEscolhido || null;
+  if (escolhido) window._carteiraVinculoManual[novoKey] = escolhido;
+  else delete window._carteiraVinculoManual[novoKey];
+  fecharVinculoModal();
+  toast(escolhido ? 'Itens vinculados — recalculando…' : 'Vínculo removido — recalculando…', 'success');
+  setTimeout(() => {
+    if (typeof computeCarteiraNovos === 'function') computeCarteiraNovos();
+    if (typeof calcularTodos === 'function') calcularTodos();
+  }, 60);
+}
+
 
 
 function toggleColecao(nome, ativa) {
@@ -8030,8 +8147,9 @@ function capturarAjustes() {
   const gradesDesat     = [...(window._gradesDesativadas    || [])];
   const espelho         = window._espelhoManual   ? JSON.parse(JSON.stringify(window._espelhoManual))   : {};
   const coberturaPorMes = window._coberturaPorMes ? JSON.parse(JSON.stringify(window._coberturaPorMes)) : {};
+  const vinculoCarteira = window._carteiraVinculoManual ? JSON.parse(JSON.stringify(window._carteiraVinculoManual)) : {};
   return { ignorados, ignoradosGrade, travas, cobertura, ajusteGrade,
-           descontinuados, colecoesOcultas, gradesDesat, espelho, coberturaPorMes };
+           descontinuados, colecoesOcultas, gradesDesat, espelho, coberturaPorMes, vinculoCarteira };
 }
 
 // Reaplica os ajustes após o recálculo (calcularTodos)
@@ -8244,12 +8362,24 @@ async function carregarSortimentoAtivo() {
       );
       window._gradesDesativadas = new Set(data.grades || []);
       const ajInit = data.ajustes || null;
+      let vinculoRestaurado = false;
       if (ajInit) {
         if (ajInit.espelho)         window._espelhoManual  = JSON.parse(JSON.stringify(ajInit.espelho));
         if (ajInit.coberturaPorMes) window._coberturaPorMes = JSON.parse(JSON.stringify(ajInit.coberturaPorMes));
         if (ajInit.cobertura != null) window._coberturaDefaultCompra = parseFloat(ajInit.cobertura) || window._coberturaDefaultCompra;
+        if (ajInit.vinculoCarteira && Object.keys(ajInit.vinculoCarteira).length) {
+          window._carteiraVinculoManual = JSON.parse(JSON.stringify(ajInit.vinculoCarteira));
+          vinculoRestaurado = true;
+        }
       }
       window._sortimentoCarregadoId = id;
+      // Se havia vínculos salvos, recomputa os novos da carteira (aplica o vínculo) e reprojetа
+      if (vinculoRestaurado && typeof computeCarteiraNovos === 'function') {
+        try {
+          computeCarteiraNovos();
+          if (typeof calcularTodos === 'function') setTimeout(() => calcularTodos(), 80);
+        } catch (e) { console.error(e); }
+      }
     }
     const aj = data.ajustes || null;
     try {

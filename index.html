@@ -7378,6 +7378,15 @@ function buildInfoPanelHTML() {
         </div>
       </div>
 
+      <div style="margin-bottom:14px;padding:10px 14px;background:#fff7ed;border:1px dashed #fb923c;border-radius:6px;font-family:'Space Mono',monospace;font-size:11px;color:#9a3412;line-height:1.7;">
+        🔧 DEBUG ESPELHO · mês ${r._anoMesProj || r.anomes || '?'}<br>
+        opk (produto): <strong>${r.nome_familia}|||${r.desc_cor}</strong><br>
+        _espelhoManual[opk]: <strong>${JSON.stringify(((window._espelhoManual||{})[r.nome_familia + '|||' + r.desc_cor]) || null)}</strong><br>
+        totalMesesComShare: <strong>${r.totalMesesComShare}</strong> · poucoHist(≤4): <strong>${(r.totalMesesComShare||0) <= 4}</strong><br>
+        _sazUsouEspelho: <strong>${!!r._sazUsouEspelho}</strong> · _espelhoCor: <strong>${r._espelhoCor || '—'}</strong> · manualFlag: <strong>${!!r._espelhoManualFlag}</strong><br>
+        indiceSazonal: <strong>${(r.indiceSazonal != null ? r.indiceSazonal : 1).toFixed(3)}</strong> · _sazUsouFallback: <strong>${!!r._sazUsouFallback}</strong> · sazAtiva: <strong>${!!(window._exportData && window._exportData.sazAtiva)}</strong>
+      </div>
+
       ${((r.indiceSazonal !== undefined && r.indiceSazonal !== 1) || r._sazUsouEspelho) ? `
       <!-- Passo Sazonalidade -->
       <div style="margin-bottom:18px;padding:16px 20px;background:#faf5ff;border:1px solid #e9d5ff;border-left:4px solid #9333ea;border-radius:6px;">

@@ -4918,9 +4918,11 @@ function doRenderGradeTab() {
   // Resetar e recalcular projOpcao a partir de allRows (que é a fonte de verdade da aba Demanda)
   const projOpcaoTotal = {};  // familia|||cor → soma de qtdProj entre meses
   const fallbackPorOpcao = {}; // familia|||cor → {usou: bool, meses: [anomes...]}
+  const opcaoPorProd = {};    // familia|||cor → descrição da coluna "Opção" do Excel de vendas
   allRows.forEach(r => {
     const k = r.nome_familia + '|||' + r.desc_cor;
     projOpcaoTotal[k] = (projOpcaoTotal[k] || 0) + (r.qtdProj || 0);
+    if (r.opcao && !opcaoPorProd[k]) opcaoPorProd[k] = r.opcao;   // 1ª descrição de "Opção" vista
     // Marca se algum mês projetado usou fallback da marca (sem histórico próprio)
     if (r._sazUsouFallback) {
       if (!fallbackPorOpcao[k]) fallbackPorOpcao[k] = { usou: true, meses: [] };
@@ -4928,6 +4930,7 @@ function doRenderGradeTab() {
     }
   });
   window._fallbackPorOpcao = fallbackPorOpcao;
+  window._opcaoPorProd = opcaoPorProd;
 
   // Pega TODAS as opcoes do allRows (mesmo as que não têm grade vinculada)
   // e também os DESCONTINUADOS mesmo com projeção 0, para que continuem visíveis (riscados)
@@ -4957,6 +4960,7 @@ function doRenderGradeTab() {
 
   gruposArr.forEach(g => {
     const opKey = g.nome_familia + '|||' + g.desc_cor;
+    g.opcao = opcaoPorProd[opKey] || '';   // descrição da coluna "Opção" do Excel de vendas
     const opAtiva = !opcoesDesativadas.has(opKey);
     g.grades = Object.values(g.gradesMap || {});
 
@@ -5047,8 +5051,8 @@ function doRenderGradeTab() {
       </td>
       <td style="text-align:center;font-size:14px;color:#1d4ed8;font-weight:800;" id="${opKey}-icon">▶</td>
       <td>
-        <strong style="${dimName}${isCarteira ? 'color:#166534;' : ''}">${g.nome_familia}</strong>
-        <span style="${dimName}"> · ${g.desc_cor}</span>
+        ${(!isCarteira && g.opcao) ? `<strong style="${dimName}">${g.opcao}</strong>` : `<strong style="${dimName}${isCarteira ? 'color:#166534;' : ''}">${g.nome_familia}</strong>
+        <span style="${dimName}"> · ${g.desc_cor}</span>`}
         ${isCarteira ? '<span title="Produto NOVO em carteira (sem histórico de vendas). A projeção vem da Carteira Alpa: Soma de Saldo a Faturar por mês de faturamento." style="margin-left:8px;background:#16a34a;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">🆕 CARTEIRA</span>' : ''}
         ${isCarteira ? `<span onclick="event.stopPropagation(); abrirVinculoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Este item da carteira é o mesmo de um produto que já existe no histórico? Clique para vinculá-los e tratar como UMA opção só (a carteira gruda no produto histórico)." style="margin-left:6px;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #c7d2fe;cursor:pointer;">🔗 VINCULAR A EXISTENTE</span>` : ''}
         ${emSellout ? '<span title="Produto descontinuado — vendendo o estoque de forma decrescente até esgotar. Estes valores ficam chumbados e o restante do mês é redistribuído entre os ativos." style="margin-left:8px;background:#f59e0b;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">⏳ ESGOTANDO ESTOQUE</span>' : ''}

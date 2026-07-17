@@ -3539,6 +3539,7 @@ function calcularTodos() {
         r._sazUsouEspelho  = true;
         r._espelhoManualFlag = manual;
         r._espelhoCor      = espCor;
+        r._espelhoKey      = kEsp;   // chave completa (familia|||cor) do espelho, p/ o gráfico
         r.shareAjustado    = (r.shareMedio || 0) * indiceSazEsp * (r._fatorTendencia || 1);
         r.partFinal        = r.shareAjustado;
         r.qtdProj          = Math.round(r.shareAjustado * vendaT);
@@ -5051,7 +5052,7 @@ function doRenderGradeTab() {
       </td>
       <td style="text-align:center;font-size:14px;color:#1d4ed8;font-weight:800;" id="${opKey}-icon">▶</td>
       <td>
-        ${(!isCarteira && g.opcao) ? `<strong style="${dimName}">${g.opcao}</strong>` : `<strong style="${dimName}${isCarteira ? 'color:#166534;' : ''}">${g.nome_familia}</strong>
+        ${(!isCarteira && g.opcao) ? `<strong style="${dimName}">${g.nome_familia}</strong><span style="${dimName}"> · ${g.opcao} · ${g.desc_cor}</span>` : `<strong style="${dimName}${isCarteira ? 'color:#166534;' : ''}">${g.nome_familia}</strong>
         <span style="${dimName}"> · ${g.desc_cor}</span>`}
         ${isCarteira ? '<span title="Produto NOVO em carteira (sem histórico de vendas). A projeção vem da Carteira Alpa: Soma de Saldo a Faturar por mês de faturamento." style="margin-left:8px;background:#16a34a;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">🆕 CARTEIRA</span>' : ''}
         ${isCarteira ? `<span onclick="event.stopPropagation(); abrirVinculoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Este item da carteira é o mesmo de um produto que já existe no histórico? Clique para vinculá-los e tratar como UMA opção só (a carteira gruda no produto histórico)." style="margin-left:6px;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #c7d2fe;cursor:pointer;">🔗 VINCULAR A EXISTENTE</span>` : ''}
@@ -6700,7 +6701,31 @@ function showHist(familia, cor, forn, marca) {
 
   const periodosHist = Object.keys(agg).sort();
   const periodosProj = Object.keys(projMap).sort();
-  const todosPeriodos = [...new Set([...periodosHist, ...periodosProj])].sort();
+
+  // ── ESPELHO do produto (se houver): coleta o histórico dele p/ sobrepor no gráfico ──
+  let espKeyP = null, espManualP = false, espFamP = null, espCorP = null, espHist = null;
+  {
+    const opkP = familia + '|||' + cor;
+    const emap = window._espelhoManual || {};
+    if (emap[opkP] && emap[opkP] !== 'AUTO') { espKeyP = emap[opkP]; espManualP = true; }
+    else if (window._exportData && window._exportData.allRows) {
+      const rE = window._exportData.allRows.find(r => r.nome_familia === familia && r.desc_cor === cor && r._espelhoKey);
+      if (rE) { espKeyP = rE._espelhoKey; espManualP = !!rE._espelhoManualFlag; }
+    }
+    if (espKeyP && espKeyP !== opkP) {
+      const parts = espKeyP.split('|||'); espFamP = parts[0]; espCorP = parts[1] || '';
+      const h = {};
+      rawData.forEach(r => {
+        if (r.nome_familia === espFamP && r.desc_cor === espCorP && r.ano_mes && /^\d{6}$/.test(r.ano_mes)) {
+          h[r.ano_mes] = (h[r.ano_mes] || 0) + Math.round(r.cx);
+        }
+      });
+      if (Object.keys(h).length) espHist = h; else espKeyP = null;
+    } else { espKeyP = null; }
+  }
+  const periodosEsp = espHist ? Object.keys(espHist) : [];
+
+  const todosPeriodos = [...new Set([...periodosHist, ...periodosProj, ...periodosEsp])].sort();
 
   if (!todosPeriodos.length) {
     toast('Nenhum histórico encontrado para essa combinação.', 'error');
@@ -6844,7 +6869,7 @@ function showHist(familia, cor, forn, marca) {
   const LABELS = { proj:'Projeção', l3m:'L3M', prev:'Prev Ano', outro:'', rupt:'Ruptura', outl:'Outlier', reprimido:'Pico reprimido', remarc:'Remarcação' };
 
   const getVal = p => projMap[p] !== undefined ? projMap[p] : (agg[p] || 0);
-  const maxVal = Math.max(...todosPeriodos.map(getVal), 1);
+  const maxVal = Math.max(...todosPeriodos.map(getVal), ...(espHist ? Object.values(espHist) : []), 1);
 
   // Remarcações (liquidações) detectadas por preço + preço médio por mês
   const prodK = familia + '|||' + cor;
@@ -6897,6 +6922,11 @@ function showHist(familia, cor, forn, marca) {
     const yClick = isIgnorado ? topPad + chartH - hClick : y;
     return `<g style="cursor:${cursor}" ${onclick}>
       <rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${col}" rx="4" opacity="${opacity}"/>
+      ${espHist && espHist[p] > 0 ? (() => {
+        const he = Math.max(3, Math.round((espHist[p] / maxVal) * chartH));
+        const ye = topPad + (chartH - he);
+        return `<rect x="${x+2}" y="${ye}" width="${barW-4}" height="${he}" fill="none" stroke="#6d28d9" stroke-width="1.6" stroke-dasharray="4 3" rx="3" opacity="0.9"><title>Histórico do espelho (${espCorP}) em ${fmt(p)}: ${espHist[p].toLocaleString('pt-BR')} CX</title></rect>`;
+      })() : ''}
       ${isProj ? `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="url(#stripeProj)" rx="4" opacity="0.15"/>` : ''}
       ${isDescartado && !isIgnorado ? (() => {
         const borderColor = isDescMin ? '#dc2626' : '#ea580c';
@@ -7017,7 +7047,11 @@ function showHist(familia, cor, forn, marca) {
     `<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;font-weight:600;font-family:Barlow,sans-serif;">
       <div style="width:13px;height:13px;border-radius:3px;background:${l.color};flex-shrink:0;"></div>${l.label}
     </div>`
-  ).join('');
+  ).join('')
+  + (espHist ? `<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#5b21b6;font-weight:700;font-family:Barlow,sans-serif;">
+      <div style="width:18px;height:12px;border:1.6px dashed #6d28d9;border-radius:2px;flex-shrink:0;"></div>Histórico do espelho${espCorP ? ' · ' + espCorP : ''}${espManualP ? ' (manual)' : ' (auto)'}
+    </div>
+    <button onclick="showHist('${(espFamP||'').replace(/'/g,"\\'")}','${(espCorP||'').replace(/'/g,"\\'")}','${String(forn).replace(/'/g,"\\'")}','${String(marca).replace(/'/g,"\\'")}')" style="background:#6d28d9;color:#fff;border:none;padding:5px 11px;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;font-family:Barlow,sans-serif;">📊 Ver histórico e cálculos completos do espelho</button>` : '');
 
   const totalHist = periodosHist.reduce((s,p)=>s+(agg[p]||0),0);
   const totalProj = periodosProj.reduce((s,p)=>s+(projMap[p]||0),0);

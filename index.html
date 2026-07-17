@@ -2342,6 +2342,14 @@ function normalizeData(data) {
   const colGrade    = find(['GRADE','grade','LOTE','lote','cod_grade','codigo_grade']);
   const colDescGrade= find(['DESC_GRADE','desc_grade','descgrade','descricao_grade','desc_lote']);
   const colColecao  = find(['COLECAO','colecao','coleção','colecoes','collection','temporada','season','linha']);
+  // Código da cor — coluna "COR" separada da descrição "DESC_COR", se existir
+  let colCorCod = find(['CODCOR','codcor','cod_cor','codigocor','codigo_cor','corcod','cor_codigo','cod_color']);
+  if (!colCorCod) {
+    const nCor = norm('cor');
+    const m = normKeys.find(k => k.n === nCor && k.orig !== colCor);
+    if (m) colCorCod = m.orig;
+  }
+  if (colCorCod === colCor) colCorCod = null;
   const colFat      = find(['FATURAMENTO','faturamento','valor','VALOR','receita','RECEITA','vlr_faturamento','faturamento_liquido','valor_total','vlrtotal','fat']);
 
   console.log('Mapeamento colunas:', { colForn, colMarca, colFam, colCor, colAnomes, colQtd });
@@ -2402,6 +2410,7 @@ function normalizeData(data) {
       marca:        String(row[colMarca]  || '').trim(),
       nome_familia: String(row[colFam]    || '').trim(),
       desc_cor:     String(row[colCor]    || '').trim(),
+      cor:          colCorCod ? String(row[colCorCod] || '').trim() : '',
       opcao:        String(row[colOpcao]  || '').trim(),
       categoria:    String(row[colCategoria] || '').trim(),
       grade:        String(row[colGrade] || '').trim(),
@@ -3293,6 +3302,7 @@ function calcularTodos() {
       const k = key(r);
       if (!agg[k]) agg[k] = {
         nome_familia: r.nome_familia, desc_cor: r.desc_cor,
+        cor: r.cor || '',
         opcao: r.opcao || '', categoria: r.categoria || '',
         mesesRuptura: []
       };
@@ -5913,7 +5923,7 @@ function abrirVinculoPicker(familia, cor) {
     const k = r.nome_familia + '|||' + r.desc_cor;
     if (vistos.has(k)) return;
     vistos.add(k);
-    cands.push({ key: k, familia: r.nome_familia, cor: r.desc_cor, hist: r.totalMesesComShare || 0 });
+    cands.push({ key: k, familia: r.nome_familia, cor: r.desc_cor, codCor: r.cor || '', hist: r.totalMesesComShare || 0 });
   });
   cands.sort((a, b) => (b.hist - a.hist) || a.familia.localeCompare(b.familia));
   window._vinculoCandidatos = cands;
@@ -5933,7 +5943,7 @@ function renderVinculoLista(termo) {
   const cands = window._vinculoCandidatos || [];
   const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/'/g,"\\'").replace(/"/g,'&quot;');
   const t = (termo || '').trim().toLowerCase();
-  const filtrados = t ? cands.filter(c => (c.familia + ' ' + c.cor).toLowerCase().includes(t)) : cands;
+  const filtrados = t ? cands.filter(c => (c.familia + ' ' + c.cor + ' ' + (c.codCor || '')).toLowerCase().includes(t)) : cands;
   const escolhido = window._vinculoEscolhido || null;
 
   const linhaItem = (val, texto, sub, sel) => `<div onclick="selecionarVinculo(${val === null ? 'null' : "'" + esc(val) + "'"})" style="padding:9px 12px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px;${sel ? 'background:#e0e7ff;' : 'background:#fff;'}" onmouseover="this.style.background='#eef2ff'" onmouseout="this.style.background='${sel ? '#e0e7ff' : '#fff'}'">
@@ -5947,7 +5957,7 @@ function renderVinculoLista(termo) {
   if (!filtrados.length && t) {
     html += '<div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px;">Nenhum produto encontrado para "' + esc(termo) + '"</div>';
   } else {
-    html += filtrados.map(c => linhaItem(c.key, c.familia + ' · ' + c.cor, c.hist + ' meses', escolhido === c.key)).join('');
+    html += filtrados.map(c => linhaItem(c.key, c.familia + ' · ' + (c.codCor ? c.codCor + ' ' : '') + c.cor, c.hist + ' meses', escolhido === c.key)).join('');
   }
   lista.innerHTML = html;
   const lbl = document.getElementById('vinculoSelecionadoLabel');

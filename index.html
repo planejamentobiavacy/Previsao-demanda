@@ -4930,10 +4930,12 @@ function doRenderGradeTab() {
   const projOpcaoTotal = {};  // familia|||cor → soma de qtdProj entre meses
   const fallbackPorOpcao = {}; // familia|||cor → {usou: bool, meses: [anomes...]}
   const opcaoPorProd = {};    // familia|||cor → descrição da coluna "Opção" do Excel de vendas
+  const codCorPorProd = {};   // familia|||cor → código da cor
   allRows.forEach(r => {
     const k = r.nome_familia + '|||' + r.desc_cor;
     projOpcaoTotal[k] = (projOpcaoTotal[k] || 0) + (r.qtdProj || 0);
     if (r.opcao && !opcaoPorProd[k]) opcaoPorProd[k] = r.opcao;   // 1ª descrição de "Opção" vista
+    if (r.cor && !codCorPorProd[k]) codCorPorProd[k] = r.cor;     // 1º código de cor visto
     // Marca se algum mês projetado usou fallback da marca (sem histórico próprio)
     if (r._sazUsouFallback) {
       if (!fallbackPorOpcao[k]) fallbackPorOpcao[k] = { usou: true, meses: [] };
@@ -4972,6 +4974,7 @@ function doRenderGradeTab() {
   gruposArr.forEach(g => {
     const opKey = g.nome_familia + '|||' + g.desc_cor;
     g.opcao = opcaoPorProd[opKey] || '';   // descrição da coluna "Opção" do Excel de vendas
+    g.codCor = codCorPorProd[opKey] || '';  // código da cor
     const opAtiva = !opcoesDesativadas.has(opKey);
     g.grades = Object.values(g.gradesMap || {});
 
@@ -5063,7 +5066,7 @@ function doRenderGradeTab() {
       <td style="text-align:center;font-size:14px;color:#1d4ed8;font-weight:800;" id="${opKey}-icon">▶</td>
       <td>
         ${(!isCarteira && g.opcao) ? `<strong style="${dimName}">${g.opcao}</strong>` : `<strong style="${dimName}${isCarteira ? 'color:#166534;' : ''}">${g.nome_familia}</strong>
-        <span style="${dimName}"> · ${g.desc_cor}</span>`}
+        <span style="${dimName}"> · ${g.codCor ? g.codCor + ' ' : ''}${g.desc_cor}</span>`}
         ${isCarteira ? '<span title="Produto NOVO em carteira (sem histórico de vendas). A projeção vem da Carteira Alpa: Soma de Saldo a Faturar por mês de faturamento." style="margin-left:8px;background:#16a34a;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">🆕 CARTEIRA</span>' : ''}
         ${isCarteira ? `<span onclick="event.stopPropagation(); abrirVinculoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Este item da carteira é o mesmo de um produto que já existe no histórico? Clique para vinculá-los e tratar como UMA opção só (a carteira gruda no produto histórico)." style="margin-left:6px;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #c7d2fe;cursor:pointer;">🔗 VINCULAR A EXISTENTE</span>` : ''}
         ${emSellout ? '<span title="Produto descontinuado — vendendo o estoque de forma decrescente até esgotar. Estes valores ficam chumbados e o restante do mês é redistribuído entre os ativos." style="margin-left:8px;background:#f59e0b;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">⏳ ESGOTANDO ESTOQUE</span>' : ''}
@@ -5816,7 +5819,7 @@ function abrirEspelhoPicker(familia, cor) {
     const h = r.totalMesesComShare || 0;
     if (h < 4) return;
     if (!vistos[k] || h > vistos[k].hist) {
-      vistos[k] = { familia: r.nome_familia, cor: r.desc_cor, hist: h, mesmaFam: r.nome_familia === familia };
+      vistos[k] = { familia: r.nome_familia, cor: r.desc_cor, codCor: r.cor || '', hist: h, mesmaFam: r.nome_familia === familia };
     }
   });
   const cands = Object.keys(vistos).map(k => Object.assign({ key: k }, vistos[k]));
@@ -5839,7 +5842,7 @@ function renderEspelhoLista(termo) {
   const cands = window._espelhoCandidatos || [];
   const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/'/g,"\\'").replace(/"/g,'&quot;');
   const t = (termo || '').trim().toLowerCase();
-  const filtrados = t ? cands.filter(c => (c.familia + ' ' + c.cor).toLowerCase().includes(t)) : cands;
+  const filtrados = t ? cands.filter(c => (c.familia + ' ' + c.cor + ' ' + (c.codCor || '')).toLowerCase().includes(t)) : cands;
   const escolhido = window._espelhoEscolhido || 'AUTO';
 
   const linhaItem = (val, texto, sub, destaque) => {
@@ -5860,7 +5863,7 @@ function renderEspelhoLista(termo) {
   } else {
     html += filtrados.map(c => linhaItem(
       c.key,
-      (c.mesmaFam ? '⭐ ' : '') + c.familia + ' · ' + c.cor,
+      (c.mesmaFam ? '⭐ ' : '') + c.familia + ' · ' + (c.codCor ? c.codCor + ' ' : '') + c.cor,
       c.hist + ' meses',
       c.mesmaFam
     )).join('');
@@ -7066,7 +7069,8 @@ function showHist(familia, cor, forn, marca) {
   const totalHist = periodosHist.reduce((s,p)=>s+(agg[p]||0),0);
   const totalProj = periodosProj.reduce((s,p)=>s+(projMap[p]||0),0);
 
-  document.getElementById('histTitle').textContent = `${familia} · ${cor}`;
+  const _codCorP = (registros.find(r => r.cor) || {}).cor || '';
+  document.getElementById('histTitle').textContent = `${familia} · ${_codCorP ? _codCorP + ' ' : ''}${cor}`;
   document.getElementById('histSubtitle').textContent =
     `${forn} · ${marca} · Histórico: ${totalHist.toLocaleString('pt-BR')} CX` +
     (totalProj ? ` · Projeção: ${totalProj.toLocaleString('pt-BR')} CX` : '') +

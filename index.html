@@ -1194,6 +1194,7 @@
           <button id="btnDescontinuados" onclick="abrirDescontinuados()" title="Ver todos os produtos descontinuados, ordenados por venda histórica" style="background:#fff;border:1.5px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">⛔ Descontinuados</button>
           <button id="btnFiltroFallback" onclick="toggleFiltroFallback()" title="Mostrar só produtos que projetam com sazonalidade da marca (sem histórico próprio do mês)" style="background:#fef3c7;border:1.5px solid #fde68a;color:#92400e;padding:8px 12px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">⚠️ Só Saz. Marca</button>
           <button id="btnFiltroNovos" onclick="toggleFiltroNovos()" title="Mostrar só os produtos NOVOS da Carteira Alpa (sem histórico)" style="display:none;background:#f0fdf4;border:1.5px solid #86efac;color:#166534;padding:8px 12px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">🆕 Novos</button>
+          <button id="btnFiltroEspelho" onclick="toggleFiltroEspelho()" title="Mostrar só os produtos que usam ESPELHO (manual ou automático)" style="display:none;background:#faf5ff;border:1.5px solid #d8b4fe;color:#6b21a8;padding:8px 12px;border-radius:6px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">🪞 Espelho</button>
           <button class="btn btn-secondary" onclick="goStep(2)" style="font-size:12px;">← Ajustar</button>
           <button class="btn btn-success" onclick="exportGradeCSV()">⬇ Exportar CSV</button>
         </div>
@@ -3550,31 +3551,55 @@ function calcularTodos() {
         r._espelhoManualFlag = manual;
         r._espelhoCor      = espCor;
         r._espelhoKey      = kEsp;   // chave completa (familia|||cor) do espelho, p/ o gráfico
-        r.shareAjustado    = (r.shareMedio || 0) * indiceSazEsp * (r._fatorTendencia || 1);
-        r.partFinal        = r.shareAjustado;
-        r.qtdProj          = Math.round(r.shareAjustado * vendaT);
+        if (manual) {
+          // ESPELHO MANUAL → o item herda o VOLUME (projeção) do espelho, com todos os
+          // cálculos normais. O volume é copiado APÓS a normalização (somado por cima,
+          // sem diluir os demais produtos). Ignora o share próprio (pouco histórico).
+          r._herdaVolumeEspelho = true;
+        } else {
+          // ESPELHO AUTOMÁTICO → só a sazonalidade (forma); mantém o share próprio.
+          r.shareAjustado    = (r.shareMedio || 0) * indiceSazEsp * (r._fatorTendencia || 1);
+          r.partFinal        = r.shareAjustado;
+          r.qtdProj          = Math.round(r.shareAjustado * vendaT);
+        }
         window._espelhoPorOpcao[opk] = espCor + (manual ? ' (manual)' : '');
       });
     }
 
     // Normalização: com sazonalidade, a soma dos shares ajustados ≠ 1
-    // Rescala todos proporcionalmente para que Σ qtdProj = vendaT
-    const somaAjustada = rows.reduce((s,r) => s + (r.shareAjustado || r.partFinal || 0), 0);
+    // Rescala todos proporcionalmente para que Σ qtdProj = vendaT.
+    // Itens que HERDAM O VOLUME do espelho não entram na normalização (são add-on).
+    const somaAjustada = rows.reduce((s,r) => s + (r._herdaVolumeEspelho ? 0 : (r.shareAjustado || r.partFinal || 0)), 0);
     if (somaAjustada > 0) {
       rows.forEach(r => {
+        if (r._herdaVolumeEspelho) return;
         const shareNorm = (r.shareAjustado || r.partFinal || 0) / somaAjustada;
         r.qtdProj   = Math.round(shareNorm * vendaT);
         r.partFinal = shareNorm;  // partFinal agora é o share normalizado final
       });
     }
 
-    // Corrige arredondamento residual — diferença vai pro maior
-    const somaProjs = rows.reduce((s,r) => s + r.qtdProj, 0);
+    // Corrige arredondamento residual — diferença vai pro maior (só entre os normais)
+    const somaProjs = rows.reduce((s,r) => s + (r._herdaVolumeEspelho ? 0 : r.qtdProj), 0);
     if (somaProjs > 0 && somaProjs !== vendaT) {
       const diff = vendaT - somaProjs;
-      rows.sort((a,b) => b.partFinal - a.partFinal);
-      if (rows[0]) rows[0].qtdProj += diff;
+      const normais = rows.filter(r => !r._herdaVolumeEspelho).sort((a,b) => b.partFinal - a.partFinal);
+      if (normais[0]) normais[0].qtdProj += diff;
     }
+
+    // ESPELHO MANUAL: item herda o VOLUME projetado do espelho (somado por cima, sem diluir)
+    rows.forEach(r => {
+      if (!r._herdaVolumeEspelho) return;
+      const espRow = rows.find(o => (o.nome_familia + '|||' + o.desc_cor) === r._espelhoKey);
+      if (espRow) {
+        r.qtdProj       = espRow.qtdProj || 0;
+        r.shareAjustado = espRow.shareAjustado || 0;
+        r.partFinal     = espRow.partFinal || 0;
+        if (espRow.indiceSazonal != null) r.indiceSazonal = espRow.indiceSazonal;
+      } else {
+        r.qtdProj = 0;
+      }
+    });
 
     allRows.push(...rows);
   }
@@ -5180,6 +5205,14 @@ function doRenderGradeTab() {
     if (nNovos > 0 && !window._filtroNovosAtivo) btnNovos.textContent = `🆕 Novos (${nNovos})`;
   }
 
+  // Mostra o botão "🪞 Espelho" só quando há produtos que usam espelho (manual ou auto)
+  const btnEsp = document.getElementById('btnFiltroEspelho');
+  if (btnEsp) {
+    const nEsp = gruposArr.filter(g => _opcaoTemEspelho(g.nome_familia + '|||' + g.desc_cor)).length;
+    btnEsp.style.display = nEsp > 0 ? '' : 'none';
+    if (nEsp > 0 && !window._filtroEspelhoAtivo) btnEsp.textContent = `🪞 Espelho (${nEsp})`;
+  }
+
   // Restaura estado de expansão dos grupos (mapeando por família+cor)
   if (window._expandidosGradePorProduto && window._expandidosGradePorProduto.size > 0) {
     gruposArr.forEach((g, idx) => {
@@ -6350,8 +6383,8 @@ function aplicarDescontinuadosERecalcular() {
     // Valores FIXOS do mês: travas manuais + sell-out dos descontinuados + produtos novos (carteira/espelho)
     const travados = linhasMes.filter(r => r._ajusteManual === true && !r._colExcluido && !r._descontinuado && !r._novoCarteira);
     const descont  = linhasMes.filter(r => r._descontinuado);          // já com qtdProj do sell-out
-    const carteira = linhasMes.filter(r => r._novoCarteira);           // projeção fixa da carteira/espelho
-    const livres   = linhasMes.filter(r => !r._ajusteManual && !r._colExcluido && !r._descontinuado && !r.projecaoIgnorada && !r._novoCarteira);
+    const carteira = linhasMes.filter(r => r._novoCarteira || r._herdaVolumeEspelho);  // projeção fixa da carteira/espelho manual
+    const livres   = linhasMes.filter(r => !r._ajusteManual && !r._colExcluido && !r._descontinuado && !r.projecaoIgnorada && !r._novoCarteira && !r._herdaVolumeEspelho);
 
     const totalFixo = travados.reduce((s,r) => s + (r.qtdProj || 0), 0)
                     + descont.reduce((s,r) => s + (r.qtdProj || 0), 0)
@@ -6434,6 +6467,59 @@ function aplicarFiltroNovos() {
   const infoEl = document.getElementById('gradeSearchInfo');
   if (window._filtroNovosAtivo && infoEl) {
     infoEl.textContent = `${visiveis} produto(s) novo(s) da carteira`;
+  } else if (infoEl) {
+    infoEl.textContent = '';
+  }
+}
+
+// Retorna true se a opção usa espelho (manual OU automático)
+function _opcaoTemEspelho(opk) {
+  if (!opk) return false;
+  const espOpc = window._espelhoPorOpcao || {};      // históricos que usaram espelho (manual/auto)
+  const espRef = window._espelhoRefPorOpcao || {};   // novos de carteira (sempre têm espelho)
+  const espMan = window._espelhoManual || {};        // escolha manual explícita
+  return !!(espOpc[opk] || espRef[opk] || (espMan[opk] && espMan[opk] !== 'AUTO'));
+}
+
+function toggleFiltroEspelho() {
+  window._filtroEspelhoAtivo = !window._filtroEspelhoAtivo;
+  const btn = document.getElementById('btnFiltroEspelho');
+  if (btn) {
+    if (window._filtroEspelhoAtivo) {
+      btn.style.background = '#7c3aed';
+      btn.style.color = '#fff';
+      btn.textContent = '✓ Espelho';
+    } else {
+      btn.style.background = '#faf5ff';
+      btn.style.color = '#6b21a8';
+      btn.textContent = '🪞 Espelho';
+    }
+  }
+  aplicarFiltroEspelho();
+}
+
+function aplicarFiltroEspelho() {
+  const rows = document.querySelectorAll('#gradeBody tr.grade-grupo-header');
+  let visiveis = 0;
+  rows.forEach(tr => {
+    const opKey = tr.dataset.opKey;
+    if (!window._filtroEspelhoAtivo) {
+      tr.style.display = '';
+      const iconEl = tr.querySelector('[id$="-icon"]');
+      if (iconEl) {
+        const grupoKey = iconEl.id.replace('-icon','');
+        document.querySelectorAll('.grade-row-' + grupoKey).forEach(gr => gr.style.display = 'none');
+        iconEl.textContent = '▶';
+      }
+    } else {
+      const tem = _opcaoTemEspelho(opKey);
+      tr.style.display = tem ? '' : 'none';
+      if (tem) visiveis++;
+    }
+  });
+  const infoEl = document.getElementById('gradeSearchInfo');
+  if (window._filtroEspelhoAtivo && infoEl) {
+    infoEl.textContent = `${visiveis} produto(s) com espelho`;
   } else if (infoEl) {
     infoEl.textContent = '';
   }
@@ -7941,8 +8027,8 @@ function recalcularComMesesIgnorados() {
 
     // 2. Aplica ajustes manuais — linhas travadas mantêm o qtdProj fixado pelo usuário
     const travados = linhasMes.filter(r => r._ajusteManual === true && !r._novoCarteira);
-    const carteira = linhasMes.filter(r => r._novoCarteira);   // projeção FIXA da carteira/espelho
-    const naoTravadosLivres = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada && !r._novoCarteira);
+    const carteira = linhasMes.filter(r => r._novoCarteira || r._herdaVolumeEspelho);   // projeção FIXA da carteira/espelho manual
+    const naoTravadosLivres = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada && !r._novoCarteira && !r._herdaVolumeEspelho);
     const totalTravado = travados.reduce((s,r) => s + (r.qtdProj || 0), 0)
                        + carteira.reduce((s,r) => s + (r.qtdProj || 0), 0);
     const vendaRestante = Math.max(0, vendaT - totalTravado);
@@ -7959,8 +8045,8 @@ function recalcularComMesesIgnorados() {
       r.sharesDescartMax    = r.sharesDescartMaxNovo;
       r.totalMesesComShare  = r.totalMesesComShareNovo;
 
-      if (r._novoCarteira) {
-        // Projeção FIXA da carteira/espelho — não recalcula por share (share = 0)
+      if (r._novoCarteira || r._herdaVolumeEspelho) {
+        // Projeção FIXA da carteira/espelho manual — não recalcula por share
         r.partFinal = vendaT > 0 ? (r.qtdProj || 0) / vendaT : 0;
         return;
       }

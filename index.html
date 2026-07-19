@@ -3902,14 +3902,26 @@ function atualizarCartoesResumo(allRows, meses) {
   const cartTotal = Object.values(cartRealPorMes).reduce((s,v)=>s+v,0) / 12;  // total do backlog (CX)
 
   const skusComProj = [...new Set(rowsAtivas.filter(r=>r.qtdProj>0).map(r=>r.nome_familia+'|'+r.desc_cor))].length;
+
+  // Meta parametrizada (vendaT em CX) por mês, para comparar com o projetado
+  const metaPorMes = {};
+  meses.forEach(m => { if (m && m.anomes) metaPorMes[m.anomes] = m.vendaT || 0; });
+
   el.innerHTML = anomesUnicos.map(am => {
     const total = rowsAtivas.filter(r=>r.anomes===am).reduce((s,r)=>s+(r.qtdProj||0),0);
     const cartCX = cartRealCX(am);
     const paresProj = total * 12;
+    const meta   = metaPorMes[am] || 0;
+    const delta  = total - meta;
+    const dpct   = meta > 0 ? Math.round((delta / meta) * 100) : 0;
+    const dcor   = delta > 0 ? '#166534' : (delta < 0 ? '#b91c1c' : '#64748b');
+    const dsinal = delta > 0 ? '+' : '';
     return `<div class="summary-card">
       <div class="sc-label">${am.substring(4,6)}/${am.substring(0,4)}</div>
       <div class="sc-val" style="color:var(--accent)">${total.toLocaleString('pt-BR')} <span style="font-size:14px">CX</span></div>
       <div class="sc-sub">${paresProj > 0 ? paresProj.toLocaleString('pt-BR') + ' pares \u2192 ' : ''}${total.toLocaleString('pt-BR')} CX projetadas</div>
+      <div class="sc-sub" style="margin-top:5px;padding-top:5px;border-top:1px dashed #e2e8f0;">\uD83C\uDFAF Meta: <strong style="color:#334155;">${meta.toLocaleString('pt-BR')} CX</strong></div>
+      <div class="sc-sub" style="color:${dcor};font-weight:700;" title="Projetado (ativos) − Meta parametrizada">\u0394 ${dsinal}${delta.toLocaleString('pt-BR')} CX${meta > 0 ? ` (${dsinal}${dpct}%)` : ''}</div>
       <div class="sc-sub" style="color:${cartCX > 0 ? '#166534' : '#94a3b8'};font-weight:${cartCX > 0 ? '700' : '500'};margin-top:2px;">\uD83E\uDDFE ${cartCX.toLocaleString('pt-BR')} CX em carteira</div>
     </div>`;
   }).join('') + `
@@ -3917,6 +3929,15 @@ function atualizarCartoesResumo(allRows, meses) {
       <div class="sc-label">Total Geral</div>
       <div class="sc-val">${totalGeral.toLocaleString('pt-BR')} CX</div>
       <div class="sc-sub">${anomesUnicos.length} meses projetados</div>
+      ${(() => {
+        const metaTot = Object.values(metaPorMes).reduce((s,v)=>s+v,0);
+        const dTot = totalGeral - metaTot;
+        const dPctTot = metaTot > 0 ? Math.round((dTot/metaTot)*100) : 0;
+        const cTot = dTot > 0 ? '#166534' : (dTot < 0 ? '#b91c1c' : '#64748b');
+        const sTot = dTot > 0 ? '+' : '';
+        return `<div class="sc-sub" style="margin-top:5px;padding-top:5px;border-top:1px dashed #e2e8f0;">\uD83C\uDFAF Meta: <strong style="color:#334155;">${metaTot.toLocaleString('pt-BR')} CX</strong></div>
+      <div class="sc-sub" style="color:${cTot};font-weight:700;">\u0394 ${sTot}${dTot.toLocaleString('pt-BR')} CX${metaTot > 0 ? ` (${sTot}${dPctTot}%)` : ''}</div>`;
+      })()}
       <div class="sc-sub" style="color:${cartTotal > 0 ? '#166534' : '#94a3b8'};font-weight:${cartTotal > 0 ? '700' : '500'};margin-top:2px;">\uD83E\uDDFE ${Math.round(cartTotal).toLocaleString('pt-BR')} CX em carteira</div>
     </div>
     <div class="summary-card" style="border-top-color:#059669">

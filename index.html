@@ -4683,26 +4683,34 @@ function renderGradeTab() {
   setTimeout(() => doRenderGradeTab(), 50);
 }
 
-// Mini-gráfico de linha (sparkline) LEVE da projeção mensal
-function _sparklineProj(serie, meses, manualIdx) {
+// Mini-gráfico de linha (sparkline): histórico (cinza) + projeção (colorida), desde jan/2025
+function _sparklineProj(serie, meses, manualIdx, projStartIdx) {
   const n = serie.length;
   if (!n || serie.every(v => !v)) return '<span style="color:#cbd5e1;font-size:10px;">—</span>';
-  const w = 132, h = 34, pad = 5;
+  const w = 150, h = 34, pad = 5;
   const max = Math.max(...serie, 1);
   const xStep = n > 1 ? (w - 2 * pad) / (n - 1) : 0;
   const yv = v => h - pad - (v / max) * (h - 2 * pad);
   const pts = serie.map((v, i) => [pad + i * xStep, yv(v)]);
-  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  const area = line + ` L ${(pad + (n - 1) * xStep).toFixed(1)} ${h - pad} L ${pad} ${h - pad} Z`;
   const mlbl = am => am ? (am.substring(4, 6) + '/' + am.substring(2, 4)) : '';
   const manSet = new Set(manualIdx || []);
   const temManual = manSet.size > 0;
-  const cor = temManual ? '#2563eb' : '#7c3aed';   // azul se houver ajuste manual, senão roxo
-  const tip = serie.map((v, i) => `${mlbl(meses[i])}: ${Math.round(v).toLocaleString('pt-BR')}${manSet.has(i) ? ' (manual)' : ''}`).join(' · ');
+  const corProj = temManual ? '#2563eb' : '#7c3aed';   // azul se houver ajuste manual, senão roxo
+  const corHist = '#cbd5e1';
+  const ps = (projStartIdx == null || projStartIdx < 0) ? n : projStartIdx;
+  const pathFrom = (a, b) => pts.slice(a, b).map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const histPath = ps > 0 ? pathFrom(0, ps) : '';
+  const projPath = ps < n ? pathFrom(Math.max(0, ps - 1), n) : '';   // conecta no ponto de virada
+  const divX = (ps > 0 && ps < n) ? ((pts[ps - 1][0] + pts[ps][0]) / 2).toFixed(1) : null;
+  const tip = serie.map((v, i) => `${mlbl(meses[i])}: ${Math.round(v).toLocaleString('pt-BR')}${manSet.has(i) ? ' (manual)' : ''}${(i >= ps ? ' [proj]' : '')}`).join(' · ');
   const lx = pts[n - 1][0].toFixed(1), ly = pts[n - 1][1].toFixed(1);
-  // Pontos azuis nos meses ajustados manualmente (destaque)
-  const manDots = (manualIdx || []).map(i => `<circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="2.6" fill="#2563eb" stroke="#fff" stroke-width="1"/>`).join('');
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin:0 auto;"><title>${tip} (CX)</title><path d="${area}" fill="${cor}" opacity="0.09"/><path d="${line}" fill="none" stroke="${cor}" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>${manDots}<circle cx="${lx}" cy="${ly}" r="2.4" fill="${manSet.has(n-1)?'#2563eb':cor}"/></svg>`;
+  const manDots = (manualIdx || []).map(i => `<circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="2.4" fill="#2563eb" stroke="#fff" stroke-width="1"/>`).join('');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin:0 auto;"><title>${tip} (CX)</title>` +
+    (divX ? `<line x1="${divX}" y1="2" x2="${divX}" y2="${h - 2}" stroke="#059669" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.5"/>` : '') +
+    (histPath ? `<path d="${histPath}" fill="none" stroke="${corHist}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>` : '') +
+    (projPath ? `<path d="${projPath}" fill="none" stroke="${corProj}" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>` : '') +
+    manDots +
+    `<circle cx="${lx}" cy="${ly}" r="2.4" fill="${manSet.has(n - 1) ? '#2563eb' : corProj}"/></svg>`;
 }
 
 function doRenderGradeTab() {
@@ -4725,6 +4733,20 @@ function doRenderGradeTab() {
   const base = rawData.filter(r =>
     (!forn || r.fornecedor === forn) && (!marca || r.marca === marca)
   );
+
+  // Histórico por opção por mês (para o minigráfico começar em jan/2025)
+  const histOpcaoPorMes = {};
+  const mesesHistSet = new Set();
+  base.forEach(r => {
+    if (!r.ano_mes || !/^\d{6}$/.test(r.ano_mes) || r.ano_mes < '202501') return;
+    const k = r.nome_familia + '|||' + r.desc_cor;
+    if (!histOpcaoPorMes[k]) histOpcaoPorMes[k] = {};
+    histOpcaoPorMes[k][r.ano_mes] = (histOpcaoPorMes[k][r.ano_mes] || 0) + Math.round(r.cx);
+    mesesHistSet.add(r.ano_mes);
+  });
+  const mesesArrSet = new Set(mesesArr);
+  const mesesSpark = [...new Set([...mesesHistSet, ...mesesArr])].sort();  // histórico + projeção
+  const projStartIdx = mesesSpark.findIndex(am => mesesArrSet.has(am));
 
   // Para cada mês projetado, calcula shares de grade dentro de cada opção (família+cor)
   const linhasGrade = [];
@@ -5159,14 +5181,20 @@ function doRenderGradeTab() {
       <td style="font-size:11.5px;color:#64748b;${dimTxt}">${(window._colecaoPorProduto && window._colecaoPorProduto[opKeyClean]) ? window._colecaoPorProduto[opKeyClean] : '—'}</td>
       <td class="right"><span class="badge badge-success" style="${strike ? 'background:#e2e8f0;color:#94a3b8;text-decoration:line-through;' : (emSellout ? 'background:#fef3c7;color:#b45309;' : '')}">${fmtInt(g.projOpcao)} CX</span></td>
       <td style="padding:2px 8px;">${(() => {
-        const pm = projOpcaoPorMes[opKeyClean] || {};
-        let serie = mesesArr.map(am => Math.round(pm[am] || 0));
-        if (serie.every(v => !v) && window._projCartMes && window._projCartMes[opKeyClean]) {
-          serie = mesesArr.map(am => Math.round((window._projCartMes[opKeyClean][am]) || 0));
-        }
+        const pj = projOpcaoPorMes[opKeyClean] || {};
+        const hs = histOpcaoPorMes[opKeyClean] || {};
+        const cart = (window._projCartMes && window._projCartMes[opKeyClean]) || null;
+        const semProj = mesesArr.every(am => !pj[am]);
+        const serie = mesesSpark.map(am => {
+          if (mesesArrSet.has(am)) {
+            const pv = (semProj && cart) ? (cart[am] || 0) : (pj[am] || 0);
+            return Math.round(pv);
+          }
+          return hs[am] || 0;   // mês histórico
+        });
         const manSet = manualPorOpcaoMes[opKeyClean];
-        const manualIdx = manSet ? mesesArr.map((am, i) => manSet.has(am) ? i : -1).filter(i => i >= 0) : [];
-        return _sparklineProj(serie, mesesArr, manualIdx);
+        const manualIdx = manSet ? mesesSpark.map((am, i) => manSet.has(am) ? i : -1).filter(i => i >= 0) : [];
+        return _sparklineProj(serie, mesesSpark, manualIdx, projStartIdx);
       })()}</td>
       <td class="right"><button class="btn-hist" onclick="event.stopPropagation(); showHist('${g.nome_familia.replace(/'/g,"\\'")}', '${g.desc_cor.replace(/'/g,"\\'")}', '${forn}', '${marca}')">📈 Ver</button></td>
     </tr>`;

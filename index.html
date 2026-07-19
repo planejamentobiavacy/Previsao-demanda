@@ -3562,7 +3562,7 @@ function calcularTodos() {
           r.partFinal        = r.shareAjustado;
           r.qtdProj          = Math.round(r.shareAjustado * vendaT);
         }
-        window._espelhoPorOpcao[opk] = espCor + (manual ? ' (manual)' : '');
+        window._espelhoPorOpcao[opk] = ((kEsp.split('|||')[0] || '') ? kEsp.split('|||')[0] + ' ' : '') + espCor + (manual ? ' (manual)' : '');
       });
     }
 
@@ -3674,7 +3674,8 @@ function injetarCarteiraNovos(allRows, mesesCfg, forn, marca) {
     // Bookkeeping do espelho (para os selos/coleção herdada na tabela)
     if (mirror) {
       const espCor = mirror.split('|||')[1] || mirror;
-      window._espelhoPorOpcao[opk] = espCor + (ehManual ? ' (manual)' : ' (auto)');
+      const espFam = mirror.split('|||')[0] || '';
+      window._espelhoPorOpcao[opk] = (espFam ? espFam + ' ' : '') + espCor + (ehManual ? ' (manual)' : ' (auto)');
       if (!window._espelhoRefPorOpcao) window._espelhoRefPorOpcao = {};
       window._espelhoRefPorOpcao[opk] = mirror;   // opk do espelho (p/ herdar coleção etc.)
     }
@@ -5113,7 +5114,7 @@ function doRenderGradeTab() {
           // Prioriza a ESCOLHA MANUAL do espelho (aparece na hora, mesmo antes do recálculo aplicar)
           const manual = window._espelhoManual && window._espelhoManual[opKeyClean];
           let espTxt = null, ehManual = false;
-          if (manual && manual !== 'AUTO') { espTxt = (String(manual).split('|||')[1] || manual) + ' (manual)'; ehManual = true; }
+          if (manual && manual !== 'AUTO') { const p = String(manual).split('|||'); espTxt = (p[0] ? p[0] + ' ' : '') + (p[1] || manual) + ' (manual)'; ehManual = true; }
           else if (window._espelhoPorOpcao && window._espelhoPorOpcao[opKeyClean]) { espTxt = window._espelhoPorOpcao[opKeyClean]; }
           if (!espTxt) return '';
           const esc = s => String(s).replace(/"/g,'&quot;');

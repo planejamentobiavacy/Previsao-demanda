@@ -512,15 +512,7 @@
     left: 32px;
     background: inherit;
     z-index: 2;
-    min-width: 220px;
-  }
-  #compraTable th:nth-child(3),
-  #compraTable td:nth-child(3) {
-    position: sticky;
-    left: 252px;
-    background: inherit;
-    z-index: 2;
-    min-width: 180px;
+    min-width: 300px;
     box-shadow: 2px 0 4px rgba(0,0,0,0.04);
   }
   #compraTable thead th {
@@ -530,26 +522,22 @@
     z-index: 5;
   }
   #compraTable thead th:nth-child(1),
-  #compraTable thead th:nth-child(2),
-  #compraTable thead th:nth-child(3) {
+  #compraTable thead th:nth-child(2) {
     background: var(--accent);
     position: sticky;
     top: 0;
     z-index: 7;
   }
   #compraTable tbody tr:nth-child(even) td:nth-child(1),
-  #compraTable tbody tr:nth-child(even) td:nth-child(2),
-  #compraTable tbody tr:nth-child(even) td:nth-child(3) {
+  #compraTable tbody tr:nth-child(even) td:nth-child(2) {
     background: #f8fafc;
   }
   #compraTable tbody tr:nth-child(odd) td:nth-child(1),
-  #compraTable tbody tr:nth-child(odd) td:nth-child(2),
-  #compraTable tbody tr:nth-child(odd) td:nth-child(3) {
+  #compraTable tbody tr:nth-child(odd) td:nth-child(2) {
     background: #ffffff;
   }
   #compraTable tbody tr.compra-grade-row td:nth-child(1),
-  #compraTable tbody tr.compra-grade-row td:nth-child(2),
-  #compraTable tbody tr.compra-grade-row td:nth-child(3) {
+  #compraTable tbody tr.compra-grade-row td:nth-child(2) {
     background: #fafbfc;
   }
 
@@ -597,7 +585,7 @@
     position: sticky; left: 46px; z-index: 2; background: #fff; width: 30px; min-width: 30px;
   }
   #gradeTable th:nth-child(3), #gradeTable td:nth-child(3) {
-    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 300px;
+    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 255px; max-width: 255px;
     box-shadow: 2px 0 4px rgba(0,0,0,0.04);
   }
   #gradeTable thead th:nth-child(1),
@@ -4531,11 +4519,10 @@ function doRenderCompraTab() {
   // Header dinâmico: Família | Cor | Estoque Inicial | [coluna por mês] | Total a Comprar
   const headHtml = `<tr>
     <th style="width:32px;"></th>
-    <th>Nome Família</th>
-    <th>Desc Cor</th>
+    <th>Opção (Família + Cor)</th>
     <th>Coleção</th>
     <th style="text-align:center;">Carteira</th>
-    <th class="right">Estoque Atual</th>
+    <th class="right" style="width:52px;min-width:52px;max-width:52px;padding:5px 4px;font-size:10px;line-height:1.15;white-space:normal;word-break:break-word;">Estoque Atual</th>
     ${mesesOrdenados.map((am, idx) => `<th class="right" style="background:#1e3a8a;color:#fff;padding:6px 8px;">
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
         <span>📅 ${fmtAM(am)}</span>
@@ -4555,7 +4542,7 @@ function doRenderCompraTab() {
 
   // Body: linha por produto (com expansão de grades)
   const tbody = document.getElementById('compraBody');
-  const colSpanTotal = 7 + mesesOrdenados.length; // expand + familia + cor + coleção + carteira + estoque + meses + total + hist
+  const colSpanTotal = 6 + mesesOrdenados.length; // expand + opção + coleção + carteira + estoque + meses + demanda + compra + hist
 
   const buildCellsMeses = (mesesObj, compact = false) => {
     return mesesOrdenados.map(am => {
@@ -4590,13 +4577,12 @@ function doRenderCompraTab() {
 
     const headerRow = `<tr data-search="${(r.nome_familia + ' ' + r.desc_cor).toLowerCase().replace(/"/g,'&quot;')}" ${hasGrades ? `class="compra-op-header" onclick="toggleCompraOp('${opKey}')" style="cursor:pointer;${r._novoCarteira ? 'background:#f0fdf4;box-shadow:inset 3px 0 0 #16a34a;' : ''}"` : `class="compra-op-header"${r._novoCarteira ? ' style="background:#f0fdf4;box-shadow:inset 3px 0 0 #16a34a;"' : ''}`}>
       <td style="text-align:center;font-size:14px;color:${hasGrades ? '#1d4ed8' : '#cbd5e1'};font-weight:800;" id="${opKey}-icon">${hasGrades ? '▶' : '·'}</td>
-      <td><strong style="${r._novoCarteira ? 'color:#166534;' : ''}">${r.nome_familia}</strong></td>
-      <td>${r.desc_cor}</td>
+      <td><strong style="${r._novoCarteira ? 'color:#166534;' : ''}">${r.nome_familia}</strong> <span style="color:#64748b;">· ${r.desc_cor}</span></td>
       <td style="font-size:12px;color:#64748b;">${(window._colecaoPorProduto && window._colecaoPorProduto[r.nome_familia + '|||' + r.desc_cor]) || '—'}</td>
       <td style="text-align:center;">${_cartParesC > 0
         ? `<span title="Carteira (Saldo a Faturar) do Excel: ${_cartParesC.toLocaleString('pt-BR')} pares${r._novoCarteira ? ' · produto NOVO' : ''}" style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:800;cursor:help;">${_cartCXC.toLocaleString('pt-BR')} CX</span>${r._novoCarteira ? ' <span style="font-size:8px;">🆕</span>' : ''}`
         : '<span style="color:#cbd5e1;">—</span>'}</td>
-      <td class="right" style="color:${corEstoque};font-weight:700;">${fmtInt(r.estoqueInicial)}</td>
+      <td class="right" style="color:${corEstoque};font-weight:700;width:52px;max-width:52px;font-size:11px;padding:4px 4px;">${fmtInt(r.estoqueInicial)}</td>
       ${cellsMeses}
       <td style="background:#f0fdf4;text-align:center;width:54px;max-width:54px;padding:4px 3px;"><span style="background:#dcfce7;color:#166534;padding:2px 5px;border-radius:4px;font-weight:700;font-size:11px;">${fmtInt(r.totalDemanda)}</span></td>
       <td style="background:#fff7ed;text-align:center;width:54px;max-width:54px;padding:4px 3px;"><span class="badge badge-success" style="background:${r.totalCompra===0?'#e2e8f0':'#fee2e2'};color:${r.totalCompra===0?'#94a3b8':'#dc2626'};font-size:11px;padding:2px 5px;">${fmtInt(r.totalCompra)}</span></td>
@@ -4609,10 +4595,10 @@ function doRenderCompraTab() {
           const corEstG = gr.estoqueInicial === 0 ? '#dc2626' : '#059669';
           return `<tr class="compra-grade-row compra-grade-row-${opKey}" style="display:none;background:#fafbfc;">
             <td></td>
-            <td colspan="4" style="padding-left:36px;font-size:12px;color:#475569;">
+            <td colspan="3" style="padding-left:36px;font-size:12px;color:#475569;">
               ${gr.desc_grade ? gr.desc_grade : '<span style="color:#94a3b8;font-style:italic;">(sem descrição) ' + gr.grade + '</span>'}
             </td>
-            <td class="right" style="color:${corEstG};font-weight:600;font-size:12px;">${fmtInt(gr.estoqueInicial)}</td>
+            <td class="right" style="color:${corEstG};font-weight:600;font-size:11px;width:52px;max-width:52px;padding:4px 4px;">${fmtInt(gr.estoqueInicial)}</td>
             ${cellsG}
             <td style="background:#f0fdf4;text-align:center;width:54px;max-width:54px;padding:4px 3px;"><span style="background:#dcfce7;color:#166534;padding:2px 5px;border-radius:4px;font-weight:600;font-size:11px;">${fmtInt(gr.totalDemanda)}</span></td>
             <td style="background:#fef3e2;text-align:center;width:54px;max-width:54px;padding:4px 3px;"><span style="background:${gr.totalCompra===0?'#e2e8f0':'#fee2e2'};color:${gr.totalCompra===0?'#94a3b8':'#dc2626'};padding:2px 5px;border-radius:4px;font-weight:700;font-size:11px;">${fmtInt(gr.totalCompra)}</span></td>
@@ -6811,9 +6797,12 @@ function filterCompraTable() {
       currentMatches = txt.includes(q);
       r.style.display = currentMatches ? '' : 'none';
     } else if (r.classList.contains('compra-grade-row')) {
-      r.style.display = currentMatches ? 'table-row' : 'none';
+      // Ao buscar, as opções vêm RECOLHIDAS — grades sempre ocultas (expande manualmente)
+      r.style.display = 'none';
     }
   });
+  // Garante o ícone recolhido nas opções visíveis
+  document.querySelectorAll('[id^="compra-op-"][id$="-icon"]').forEach(ic => ic.textContent = '▶');
 }
 
 function toggleCompraOp(opKey) {
@@ -8051,21 +8040,45 @@ function aplicarAjusteCascata(familia, cor, anomes) {
 
   const rowM  = linhas[idxM];
   const baseM = rowM.qtdProj || 0;         // valor atual do mês âncora (fallback de curva)
-  const sazM  = rowM.indiceSazonal || 0;   // índice sazonal do mês âncora
+  const sazM  = rowM.indiceSazonal || 0;   // índice sazonal do mês âncora (marca)
+
+  // Curva sazonal da PRÓPRIA opção (média por mês-calendário do histórico dela)
+  const somaMM = {}, anosMM = {};
+  rawData.forEach(r => {
+    if (r.nome_familia === familia && r.desc_cor === cor && /^\d{6}$/.test(r.ano_mes)) {
+      const mm = r.ano_mes.substring(4, 6);
+      somaMM[mm] = (somaMM[mm] || 0) + (r.cx || 0);
+      (anosMM[mm] = anosMM[mm] || new Set()).add(r.ano_mes);
+    }
+  });
+  const shapeMM = {};
+  Object.keys(somaMM).forEach(mm => { shapeMM[mm] = somaMM[mm] / anosMM[mm].size; }); // média por mês
+  const mesesHistOpcao = new Set(Object.values(anosMM).reduce((a, s) => a.concat([...s]), [])).size;
+  const mmAnchor = anomes.substring(4, 6);
+  // "Bastante histórico" = ≥ 6 meses e o mês-âncora tem base própria > 0
+  const usaCurvaPropria = mesesHistOpcao >= 6 && (shapeMM[mmAnchor] || 0) > 0;
 
   rowM.qtdProj = Math.round(V);
   rowM._ajusteManual = true;
 
-  let alterou = 0;
+  let alterou = 0, metodo = '';
   for (let i = idxM + 1; i < linhas.length; i++) {
     const rowF = linhas[i];
-    let novo;
-    if (sazM > 0 && rowF.indiceSazonal) {
-      // PRIMÁRIO: segue a curva sazonal da marca, ancorada no valor do mês editado
+    const mmF  = rowF.anomes.substring(4, 6);
+    let novo = null;
+
+    if (usaCurvaPropria && (shapeMM[mmF] || 0) >= 0 && shapeMM[mmAnchor] > 0 && shapeMM[mmF] !== undefined) {
+      // PREFERENCIAL: curva histórica da própria opção
+      novo = Math.round(V * (shapeMM[mmF] / shapeMM[mmAnchor]));
+      metodo = 'própria';
+    } else if (sazM > 0 && rowF.indiceSazonal) {
+      // segue a curva sazonal da marca, ancorada no mês editado
       novo = Math.round(V * (rowF.indiceSazonal / sazM));
+      if (!metodo) metodo = 'marca';
     } else if (baseM > 0) {
-      // Fallback (sazonalidade desligada): mantém a forma da projeção atual
+      // mantém a forma da projeção atual
       novo = Math.round(V * (rowF.qtdProj / baseM));
+      if (!metodo) metodo = 'atual';
     } else {
       continue;
     }
@@ -8077,8 +8090,11 @@ function aplicarAjusteCascata(familia, cor, anomes) {
   recalcularComMesesIgnorados();
   const { forn, marca } = window._exportData;
   showHist(familia, cor, forn, marca);
+  const nomeMetodo = metodo === 'própria' ? 'a curva histórica da própria opção'
+                   : metodo === 'marca' ? 'a curva sazonal da marca'
+                   : 'a forma da projeção atual';
   if (alterou > 0) {
-    toast(`Projeção recalculada a partir de ${anomes.substring(4,6)}/${anomes.substring(0,4)} — ${alterou} ${alterou===1?'mês seguinte segue':'meses seguintes seguem'} a curva sazonal.`, 'success');
+    toast(`Projeção recalculada a partir de ${anomes.substring(4,6)}/${anomes.substring(0,4)} — ${alterou} ${alterou===1?'mês segue':'meses seguem'} ${nomeMetodo}.`, 'success');
   } else {
     toast(`${anomes.substring(4,6)}/${anomes.substring(0,4)} é o último mês — não há meses seguintes para recalcular.`, 'error');
   }

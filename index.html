@@ -3084,6 +3084,10 @@ function calcularTodos() {
       });
     });
 
+    // Expõe rupturas e picos reprimidos p/ outras funções (ex.: Recalcular à frente)
+    window._rupturaSet = ruptura;
+    window._picoReprimidoSet = picoReprimido;
+
 
     // ── ÍNDICE SAZONAL: PRODUTO + FALLBACK DA MARCA ─────────────────
     // 1. Calcula o índice sazonal da MARCA INTEIRA (todos produtos somados por mês)
@@ -8064,14 +8068,18 @@ function aplicarAjusteCascata(familia, cor, anomes) {
   const baseM = rowM.qtdProj || 0;         // valor atual do mês âncora (fallback de curva)
   const sazM  = rowM.indiceSazonal || 0;   // índice sazonal do mês âncora (marca)
 
-  // Curva sazonal da PRÓPRIA opção (média por mês-calendário), DESCARTANDO outliers (▼MENOR/▲MAIOR)
+  // Curva sazonal da PRÓPRIA opção (média por mês-calendário), DESCARTANDO ruptura e outliers (▼MENOR/▲MAIOR)
+  const _kProd = familia + '|||' + cor;
+  const _rupSet = window._rupturaSet || new Set();
+  const ehRuptura = am => _rupSet.has(_kProd + '|' + am);
   const totPorAnomes = {};
   rawData.forEach(r => {
     if (r.nome_familia === familia && r.desc_cor === cor && /^\d{6}$/.test(r.ano_mes)) {
       totPorAnomes[r.ano_mes] = (totPorAnomes[r.ano_mes] || 0) + (r.cx || 0);
     }
   });
-  const anomesHist = Object.keys(totPorAnomes).sort();
+  // Meses válidos = com venda, sem ruptura
+  const anomesHist = Object.keys(totPorAnomes).filter(am => !ehRuptura(am)).sort();
   const mesesHistOpcao = anomesHist.length;
   // Descarta o menor e o maior mês (mesmo trimming da projeção) quando há histórico suficiente
   const outliers = new Set();

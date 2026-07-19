@@ -585,15 +585,19 @@
     position: sticky; left: 46px; z-index: 2; background: #fff; width: 30px; min-width: 30px;
   }
   #gradeTable th:nth-child(3), #gradeTable td:nth-child(3) {
-    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 398px; max-width: 398px;
+    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 478px;
     box-shadow: 2px 0 4px rgba(0,0,0,0.04);
   }
   /* Coleção -50% */
-  #gradeTable th:nth-child(4), #gradeTable td:nth-child(4) { width: 55px; min-width: 55px; max-width: 55px; }
+  #gradeTable th:nth-child(4), #gradeTable td:nth-child(4) { width: 48px; min-width: 48px; max-width: 48px; }
+  /* Proj. (CX) mais estreita */
+  #gradeTable th:nth-child(5), #gradeTable td:nth-child(5) { width: 72px; min-width: 72px; max-width: 72px; }
   /* Var. LY oculta (reduzida 100%) */
   #gradeTable th:nth-child(6), #gradeTable td:nth-child(6) { display: none; }
-  /* Projeção mensal -30% */
-  #gradeTable th:nth-child(7), #gradeTable td:nth-child(7) { width: 108px; min-width: 108px; max-width: 108px; }
+  /* Projeção mensal mais estreita */
+  #gradeTable th:nth-child(7), #gradeTable td:nth-child(7) { width: 96px; min-width: 96px; max-width: 96px; }
+  /* Histórico mais estreita */
+  #gradeTable th:nth-child(8), #gradeTable td:nth-child(8) { width: 58px; min-width: 58px; max-width: 58px; }
   #gradeTable thead th:nth-child(1),
   #gradeTable thead th:nth-child(2),
   #gradeTable thead th:nth-child(3) {
@@ -5260,8 +5264,17 @@ function doRenderGradeTab() {
           // Prioriza a ESCOLHA MANUAL do espelho (aparece na hora, mesmo antes do recálculo aplicar)
           const manual = window._espelhoManual && window._espelhoManual[opKeyClean];
           let espTxt = null, ehManual = false;
-          if (manual && manual !== 'AUTO') { const p = String(manual).split('|||'); espTxt = (p[0] ? p[0] + ' ' : '') + (p[1] || manual) + ' (manual)'; ehManual = true; }
-          else if (window._espelhoPorOpcao && window._espelhoPorOpcao[opKeyClean]) { espTxt = window._espelhoPorOpcao[opKeyClean]; }
+          if (manual && manual !== 'AUTO') { const p = String(manual).split('|||'); const codEsp = codCorPorProd[manual] || ''; espTxt = (p[0] ? p[0] + ' ' : '') + (codEsp ? codEsp + ' ' : '') + (p[1] || manual) + ' (manual)'; ehManual = true; }
+          else if (window._espelhoPorOpcao && window._espelhoPorOpcao[opKeyClean]) {
+            espTxt = window._espelhoPorOpcao[opKeyClean];
+            // Injeta o código da cor do espelho (se disponível pela referência)
+            const refKey = window._espelhoRefPorOpcao && window._espelhoRefPorOpcao[opKeyClean];
+            const codEsp = refKey ? (codCorPorProd[refKey] || '') : '';
+            if (codEsp && refKey) {
+              const rp = String(refKey).split('|||');
+              if (rp[1] && espTxt.indexOf(codEsp) < 0) espTxt = espTxt.replace(rp[1], codEsp + ' ' + rp[1]);
+            }
+          }
           if (!espTxt) return '';
           const esc = s => String(s).replace(/"/g,'&quot;');
           const famEsc = g.nome_familia.replace(/'/g,"\\'"), corEsc = g.desc_cor.replace(/'/g,"\\'");
@@ -8051,21 +8064,38 @@ function aplicarAjusteCascata(familia, cor, anomes) {
   const baseM = rowM.qtdProj || 0;         // valor atual do mês âncora (fallback de curva)
   const sazM  = rowM.indiceSazonal || 0;   // índice sazonal do mês âncora (marca)
 
-  // Curva sazonal da PRÓPRIA opção (média por mês-calendário do histórico dela)
-  const somaMM = {}, anosMM = {};
+  // Curva sazonal da PRÓPRIA opção (média por mês-calendário), DESCARTANDO outliers (▼MENOR/▲MAIOR)
+  const totPorAnomes = {};
   rawData.forEach(r => {
     if (r.nome_familia === familia && r.desc_cor === cor && /^\d{6}$/.test(r.ano_mes)) {
-      const mm = r.ano_mes.substring(4, 6);
-      somaMM[mm] = (somaMM[mm] || 0) + (r.cx || 0);
-      (anosMM[mm] = anosMM[mm] || new Set()).add(r.ano_mes);
+      totPorAnomes[r.ano_mes] = (totPorAnomes[r.ano_mes] || 0) + (r.cx || 0);
     }
   });
+  const anomesHist = Object.keys(totPorAnomes).sort();
+  const mesesHistOpcao = anomesHist.length;
+  // Descarta o menor e o maior mês (mesmo trimming da projeção) quando há histórico suficiente
+  const outliers = new Set();
+  if (anomesHist.length >= 6) {
+    const ord = [...anomesHist].sort((a, b) => totPorAnomes[a] - totPorAnomes[b]);
+    outliers.add(ord[0]);                     // ▼ MENOR
+    outliers.add(ord[ord.length - 1]);        // ▲ MAIOR
+  }
+  const somaMM = {}, cntMM = {};
+  anomesHist.forEach(am => {
+    if (outliers.has(am)) return;             // ignora outliers descartados
+    const mm = am.substring(4, 6);
+    somaMM[mm] = (somaMM[mm] || 0) + totPorAnomes[am];
+    cntMM[mm]  = (cntMM[mm] || 0) + 1;
+  });
   const shapeMM = {};
-  Object.keys(somaMM).forEach(mm => { shapeMM[mm] = somaMM[mm] / anosMM[mm].size; }); // média por mês
-  const mesesHistOpcao = new Set(Object.values(anosMM).reduce((a, s) => a.concat([...s]), [])).size;
+  Object.keys(somaMM).forEach(mm => { shapeMM[mm] = somaMM[mm] / cntMM[mm]; });  // média por mês-calendário
+  const _shVals = Object.values(shapeMM);
+  const shapeAvg = _shVals.length ? _shVals.reduce((a, b) => a + b, 0) / _shVals.length : 0;  // fallback neutro
+  const shapeDe = mm => (shapeMM[mm] !== undefined ? shapeMM[mm] : shapeAvg);
   const mmAnchor = anomes.substring(4, 6);
+  const shapeAnchor = shapeDe(mmAnchor);
   // "Bastante histórico" = ≥ 6 meses e o mês-âncora tem base própria > 0
-  const usaCurvaPropria = mesesHistOpcao >= 6 && (shapeMM[mmAnchor] || 0) > 0;
+  const usaCurvaPropria = mesesHistOpcao >= 6 && shapeAnchor > 0;
 
   rowM.qtdProj = Math.round(V);
   rowM._ajusteManual = true;
@@ -8076,9 +8106,9 @@ function aplicarAjusteCascata(familia, cor, anomes) {
     const mmF  = rowF.anomes.substring(4, 6);
     let novo = null;
 
-    if (usaCurvaPropria && (shapeMM[mmF] || 0) >= 0 && shapeMM[mmAnchor] > 0 && shapeMM[mmF] !== undefined) {
-      // PREFERENCIAL: curva histórica da própria opção
-      novo = Math.round(V * (shapeMM[mmF] / shapeMM[mmAnchor]));
+    if (usaCurvaPropria) {
+      // PREFERENCIAL: curva histórica da própria opção (sem outliers)
+      novo = Math.round(V * (shapeDe(mmF) / shapeAnchor));
       metodo = 'própria';
     } else if (sazM > 0 && rowF.indiceSazonal) {
       // segue a curva sazonal da marca, ancorada no mês editado
@@ -8129,6 +8159,9 @@ function liberarAjusteManual(familia, cor, anomes) {
 function recalcularComMesesIgnorados() {
   if (!window._exportData) return;
   const { allRows, meses } = window._exportData;
+
+  // Sell-out dos descontinuados (decrescente, limitado ao estoque) — para não recolocar venda sazonal neles
+  const sellout = (typeof _calcularSelloutDescontinuados === 'function') ? _calcularSelloutDescontinuados() : {};
 
   // Para cada mês projetado, recalcula shares respeitando os meses ignorados
   meses.forEach(mesCfg => {
@@ -8208,12 +8241,29 @@ function recalcularComMesesIgnorados() {
       r.mesesIgnoradosManual = [...ignorados];
     });
 
+    // 1b. Descontinuados/coleção oculta: aplica sell-out FIXO (não recebe venda sazonal)
+    linhasMes.forEach(r => {
+      if (r._novoCarteira) return;
+      const opKey = r.nome_familia + '|||' + r.desc_cor;
+      r._colExcluido   = (typeof _colecaoExcluida === 'function') ? _colecaoExcluida(opKey) : false;
+      r._descontinuado = !!(window._opcoesDesativadas && window._opcoesDesativadas.has(opKey)) && !r._colExcluido;
+      if (r._colExcluido) {
+        r.qtdProj = 0; r.partFinal = 0;
+      } else if (r._descontinuado) {
+        const v = (sellout[opKey] && sellout[opKey][anomes]) || 0;   // venda decrescente até esgotar estoque
+        r.qtdProj = v; r.partFinal = vendaT > 0 ? v / vendaT : 0;
+        r._sellout = v > 0;
+      }
+    });
+
     // 2. Aplica ajustes manuais — linhas travadas mantêm o qtdProj fixado pelo usuário
-    const travados = linhasMes.filter(r => r._ajusteManual === true && !r._novoCarteira);
+    const travados = linhasMes.filter(r => r._ajusteManual === true && !r._novoCarteira && !r._descontinuado && !r._colExcluido);
+    const descont  = linhasMes.filter(r => r._descontinuado);   // já com qtdProj do sell-out (fixo)
     const carteira = linhasMes.filter(r => r._novoCarteira || r._herdaVolumeEspelho);   // projeção FIXA da carteira/espelho manual
-    const naoTravadosLivres = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada && !r._novoCarteira && !r._herdaVolumeEspelho);
+    const naoTravadosLivres = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada && !r._novoCarteira && !r._herdaVolumeEspelho && !r._descontinuado && !r._colExcluido);
     const totalTravado = travados.reduce((s,r) => s + (r.qtdProj || 0), 0)
-                       + carteira.reduce((s,r) => s + (r.qtdProj || 0), 0);
+                       + carteira.reduce((s,r) => s + (r.qtdProj || 0), 0)
+                       + descont.reduce((s,r) => s + (r.qtdProj || 0), 0);
     const vendaRestante = Math.max(0, vendaT - totalTravado);
 
     // 3. Normaliza só os NÃO travados e NÃO ignorados, dividindo o restante.
@@ -8230,6 +8280,17 @@ function recalcularComMesesIgnorados() {
 
       if (r._novoCarteira || r._herdaVolumeEspelho) {
         // Projeção FIXA da carteira/espelho manual — não recalcula por share
+        r.partFinal = vendaT > 0 ? (r.qtdProj || 0) / vendaT : 0;
+        return;
+      }
+
+      if (r._colExcluido) {
+        // Coleção oculta — fora da projeção
+        r.qtdProj = 0; r.partFinal = 0;
+        return;
+      }
+      if (r._descontinuado) {
+        // Descontinuado — mantém o sell-out (decrescente), não recebe venda sazonal
         r.partFinal = vendaT > 0 ? (r.qtdProj || 0) / vendaT : 0;
         return;
       }
@@ -8252,8 +8313,8 @@ function recalcularComMesesIgnorados() {
       }
     });
 
-    // Corrige arredondamento — diferença vai pro maior (entre os NÃO travados e NÃO ignorados)
-    const ajustaveis = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada && !r._novoCarteira);
+    // Corrige arredondamento — diferença vai pro maior (só entre os ativos livres)
+    const ajustaveis = linhasMes.filter(r => !r._ajusteManual && !r.projecaoIgnorada && !r._novoCarteira && !r._herdaVolumeEspelho && !r._descontinuado && !r._colExcluido);
     const somaQtd = linhasMes.reduce((s,r) => s + r.qtdProj, 0);
     const diff = vendaT - somaQtd;
     if (diff !== 0 && ajustaveis.length > 0) {

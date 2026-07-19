@@ -585,9 +585,15 @@
     position: sticky; left: 46px; z-index: 2; background: #fff; width: 30px; min-width: 30px;
   }
   #gradeTable th:nth-child(3), #gradeTable td:nth-child(3) {
-    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 332px; max-width: 332px;
+    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 398px; max-width: 398px;
     box-shadow: 2px 0 4px rgba(0,0,0,0.04);
   }
+  /* Coleção -50% */
+  #gradeTable th:nth-child(4), #gradeTable td:nth-child(4) { width: 55px; min-width: 55px; max-width: 55px; }
+  /* Var. LY oculta (reduzida 100%) */
+  #gradeTable th:nth-child(6), #gradeTable td:nth-child(6) { display: none; }
+  /* Projeção mensal -30% */
+  #gradeTable th:nth-child(7), #gradeTable td:nth-child(7) { width: 108px; min-width: 108px; max-width: 108px; }
   #gradeTable thead th:nth-child(1),
   #gradeTable thead th:nth-child(2),
   #gradeTable thead th:nth-child(3) {
@@ -1228,7 +1234,7 @@
         <table id="gradeTable">
           <thead>
             <tr>
-              <th style="width:46px;text-align:center;position:relative;" title="Ações em massa nos produtos visíveis">
+              <th style="width:46px;text-align:center;" title="Ações em massa nos produtos visíveis">
                 <button onclick="event.stopPropagation(); toggleMenuTodos()" id="btnMenuTodos" title="Marcar todos como ativos ou descontinuar todos (respeita a busca)"
                   style="background:none;border:none;cursor:pointer;color:#fff;display:inline-flex;align-items:center;gap:2px;font-family:'Barlow',sans-serif;">
                   <span id="chkTodosGlyph" style="font-size:15px;line-height:1;">☑</span><span style="font-size:9px;">▾</span>
@@ -4763,7 +4769,7 @@ function renderGradeTab() {
 function _sparklineProj(serie, meses, manualIdx, projStartIdx) {
   const n = serie.length;
   if (!n || serie.every(v => !v)) return '<span style="color:#cbd5e1;font-size:10px;">—</span>';
-  const w = 150, h = 34, pad = 5;
+  const w = 105, h = 34, pad = 5;
   const max = Math.max(...serie, 1);
   const xStep = n > 1 ? (w - 2 * pad) / (n - 1) : 0;
   const yv = v => h - pad - (v / max) * (h - 2 * pad);
@@ -5249,7 +5255,7 @@ function doRenderGradeTab() {
         ${isCarteira ? `<span onclick="event.stopPropagation(); abrirVinculoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Este item da carteira é o mesmo de um produto que já existe no histórico? Clique para vinculá-los e tratar como UMA opção só (a carteira gruda no produto histórico)." style="margin-left:6px;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #c7d2fe;cursor:pointer;">🔗 VINCULAR A EXISTENTE</span>` : ''}
         ${emSellout ? '<span title="Produto descontinuado — vendendo o estoque de forma decrescente até esgotar. Estes valores ficam chumbados e o restante do mês é redistribuído entre os ativos." style="margin-left:8px;background:#f59e0b;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">⏳ ESGOTANDO ESTOQUE</span>' : ''}
         ${strike ? '<span style="margin-left:8px;background:#dc2626;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;">DESCONTINUADO</span>' : ''}
-        ${(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean]) ? `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Um ou mais meses projetados não têm histórico próprio deste produto — usando sazonalidade da MARCA. Clique para escolher um produto-espelho." style="margin-left:8px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-size:6.5px;font-weight:800;letter-spacing:0.2px;border:1px solid #fde68a;cursor:pointer;vertical-align:middle;">⚠️ SAZ. MARCA (${[...new Set(window._fallbackPorOpcao[opKeyClean].meses)].map(am => am.substring(4,6)+'/'+am.substring(2,4)).join(', ')}) 🪞</span>` : ''}
+        ${(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean]) ? `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Um ou mais meses projetados não têm histórico próprio deste produto — usando sazonalidade da MARCA. Clique para escolher um produto-espelho." style="margin-left:8px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-size:7.5px;font-weight:800;letter-spacing:0.2px;border:1px solid #fde68a;cursor:pointer;vertical-align:middle;">⚠️ SAZ. MARCA (${[...new Set(window._fallbackPorOpcao[opKeyClean].meses)].map(am => am.substring(4,6)+'/'+am.substring(2,4)).join(', ')}) 🪞</span>` : ''}
         ${(() => {
           // Prioriza a ESCOLHA MANUAL do espelho (aparece na hora, mesmo antes do recálculo aplicar)
           const manual = window._espelhoManual && window._espelhoManual[opKeyClean];
@@ -5259,7 +5265,7 @@ function doRenderGradeTab() {
           if (!espTxt) return '';
           const esc = s => String(s).replace(/"/g,'&quot;');
           const famEsc = g.nome_familia.replace(/'/g,"\\'"), corEsc = g.desc_cor.replace(/'/g,"\\'");
-          return `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${famEsc}','${corEsc}')" title="Sazonalidade herdada do produto-espelho: ${esc(espTxt)}. Clique para trocar." style="margin-left:8px;background:${ehManual ? '#6d28d9' : '#ede9fe'};color:${ehManual ? '#fff' : '#6d28d9'};padding:1px 5px;border-radius:3px;font-size:6.5px;font-weight:800;letter-spacing:0.2px;border:1px solid #ddd6fe;cursor:pointer;vertical-align:middle;">🪞 ESPELHO: ${esc(String(espTxt).toUpperCase())}</span>`;
+          return `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${famEsc}','${corEsc}')" title="Sazonalidade herdada do produto-espelho: ${esc(espTxt)}. Clique para trocar." style="margin-left:8px;background:${ehManual ? '#6d28d9' : '#ede9fe'};color:${ehManual ? '#fff' : '#6d28d9'};padding:1px 5px;border-radius:3px;font-size:7.5px;font-weight:800;letter-spacing:0.2px;border:1px solid #ddd6fe;cursor:pointer;vertical-align:middle;">🪞 ESPELHO: ${esc(String(espTxt).toUpperCase())}</span>`;
         })()}
       </td>
       <td style="font-size:11.5px;color:#64748b;${dimTxt}">${(window._colecaoPorProduto && window._colecaoPorProduto[opKeyClean]) ? window._colecaoPorProduto[opKeyClean] : '—'}</td>

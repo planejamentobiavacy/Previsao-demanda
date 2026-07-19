@@ -4683,7 +4683,7 @@ function renderGradeTab() {
 }
 
 // Mini-gráfico de linha (sparkline) LEVE da projeção mensal
-function _sparklineProj(serie, meses) {
+function _sparklineProj(serie, meses, manualIdx) {
   const n = serie.length;
   if (!n || serie.every(v => !v)) return '<span style="color:#cbd5e1;font-size:10px;">—</span>';
   const w = 132, h = 34, pad = 5;
@@ -4694,15 +4694,27 @@ function _sparklineProj(serie, meses) {
   const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
   const area = line + ` L ${(pad + (n - 1) * xStep).toFixed(1)} ${h - pad} L ${pad} ${h - pad} Z`;
   const mlbl = am => am ? (am.substring(4, 6) + '/' + am.substring(2, 4)) : '';
-  const tip = serie.map((v, i) => `${mlbl(meses[i])}: ${Math.round(v).toLocaleString('pt-BR')}`).join(' · ');
+  const manSet = new Set(manualIdx || []);
+  const tip = serie.map((v, i) => `${mlbl(meses[i])}: ${Math.round(v).toLocaleString('pt-BR')}${manSet.has(i) ? ' (manual)' : ''}`).join(' · ');
   const lx = pts[n - 1][0].toFixed(1), ly = pts[n - 1][1].toFixed(1);
-  // Só 2 paths + 1 ponto final + 1 título (leve para renderizar em milhares de linhas)
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin:0 auto;"><title>${tip} (CX)</title><path d="${area}" fill="#7c3aed" opacity="0.09"/><path d="${line}" fill="none" stroke="#7c3aed" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${lx}" cy="${ly}" r="2.4" fill="#7c3aed"/></svg>`;
+  // Pontos azuis nos meses ajustados manualmente (destaque)
+  const manDots = (manualIdx || []).map(i => `<circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="2.6" fill="#2563eb" stroke="#fff" stroke-width="1"/>`).join('');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin:0 auto;"><title>${tip} (CX)</title><path d="${area}" fill="#7c3aed" opacity="0.09"/><path d="${line}" fill="none" stroke="#7c3aed" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>${manDots}<circle cx="${lx}" cy="${ly}" r="2.4" fill="${manSet.has(n-1)?'#2563eb':'#7c3aed'}"/></svg>`;
 }
 
 function doRenderGradeTab() {
   const { allRows, forn, marca, meses } = window._exportData;
   const mesesArr = meses.map(m => m.anomes).sort();   // meses projetados em ordem (p/ o mini-gráfico)
+
+  // Projeção da OPÇÃO por mês (fonte do mini-gráfico) — cobre com/sem grades, espelho e carteira
+  const projOpcaoPorMes = {};
+  const manualPorOpcaoMes = {};   // familia|||cor → Set de meses com ajuste manual
+  allRows.forEach(r => {
+    const k = r.nome_familia + '|||' + r.desc_cor;
+    if (!projOpcaoPorMes[k]) projOpcaoPorMes[k] = {};
+    projOpcaoPorMes[k][r.anomes] = (projOpcaoPorMes[k][r.anomes] || 0) + (r.qtdProj || 0);
+    if (r._ajusteManual) { (manualPorOpcaoMes[k] = manualPorOpcaoMes[k] || new Set()).add(r.anomes); }
+  });
   // Garante o mapa produto→coleção atualizado para exibir a coluna
   if (typeof _buildColecaoPorProduto === 'function') _buildColecaoPorProduto();
 
@@ -5144,11 +5156,14 @@ function doRenderGradeTab() {
       <td style="font-size:11.5px;color:#64748b;${dimTxt}">${(window._colecaoPorProduto && window._colecaoPorProduto[opKeyClean]) ? window._colecaoPorProduto[opKeyClean] : '—'}</td>
       <td class="right"><span class="badge badge-success" style="${strike ? 'background:#e2e8f0;color:#94a3b8;text-decoration:line-through;' : (emSellout ? 'background:#fef3c7;color:#b45309;' : '')}">${fmtInt(g.projOpcao)} CX</span></td>
       <td style="padding:2px 8px;">${(() => {
-        let serie = mesesArr.map(am => { let v = 0; (g.grades || []).forEach(gr => { v += (gr.porMes && gr.porMes[am]) || 0; }); return v; });
+        const pm = projOpcaoPorMes[opKeyClean] || {};
+        let serie = mesesArr.map(am => Math.round(pm[am] || 0));
         if (serie.every(v => !v) && window._projCartMes && window._projCartMes[opKeyClean]) {
           serie = mesesArr.map(am => Math.round((window._projCartMes[opKeyClean][am]) || 0));
         }
-        return _sparklineProj(serie, mesesArr);
+        const manSet = manualPorOpcaoMes[opKeyClean];
+        const manualIdx = manSet ? mesesArr.map((am, i) => manSet.has(am) ? i : -1).filter(i => i >= 0) : [];
+        return _sparklineProj(serie, mesesArr, manualIdx);
       })()}</td>
       <td class="right"><button class="btn-hist" onclick="event.stopPropagation(); showHist('${g.nome_familia.replace(/'/g,"\\'")}', '${g.desc_cor.replace(/'/g,"\\'")}', '${forn}', '${marca}')">📈 Ver</button></td>
     </tr>`;
@@ -6762,12 +6777,14 @@ function showHist(familia, cor, forn, marca) {
   // Projeções calculadas para esta família/cor (por mês projetado)
   const projMap = {};
   const limitadoMap = {};  // meses limitados a 70% do estoque → { valorOriginal, estoque }
+  const manualMap = {};    // meses com projeção ajustada manualmente (trava)
   if (window._exportData?.allRows) {
     window._exportData.allRows
       .filter(r => r.nome_familia === familia && r.desc_cor === cor)
       .forEach(r => {
         // Normais têm 1 linha por mês; a CARTEIRA injeta várias (por DUN) → soma
         projMap[r.anomes] = (projMap[r.anomes] || 0) + r.qtdProj;
+        if (r._ajusteManual) manualMap[r.anomes] = true;
         if (r._limitadoEstoque) limitadoMap[r.anomes] = { orig: r._qtdProjSemLimite, estoque: r._estoqueLimite, tipo: 'limite' };
         else if (r._zeradoEstoque) limitadoMap[r.anomes] = { orig: r._qtdProjSemLimite, estoque: 0, tipo: 'zero' };
       });
@@ -6976,8 +6993,9 @@ function showHist(familia, cor, forn, marca) {
   const bars = todosPeriodos.map((p, i) => {
     const v    = getVal(p);
     const tipo = getTipo(p);
-    const col  = CORES[tipo];
-    const lbl  = LABELS[tipo];
+    const isManual = projMap[p] !== undefined && manualMap[p];
+    const col  = isManual ? '#2563eb' : CORES[tipo];
+    const lbl  = isManual ? '🔒 Manual' : LABELS[tipo];
     const h    = Math.max(4, Math.round((v / maxVal) * chartH));
     const x    = i * (barW + gap);
     const y    = topPad + (chartH - h);
@@ -7067,8 +7085,10 @@ function showHist(familia, cor, forn, marca) {
         const corP = remc ? '#db2777' : '#64748b';
         const bgP  = remc ? '#fce7f3' : 'transparent';
         const txtP = 'R$ ' + pm.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        return `<rect x="${x+1}" y="${topPad+chartH+76}" width="${barW-2}" height="14" fill="${bgP}" rx="3"/>
-                <text x="${cx}" y="${topPad+chartH+86}" text-anchor="middle" font-size="8.5" fill="${corP}" font-weight="${remc?'800':'600'}" font-family="Barlow,sans-serif">${txtP}</text>`;
+        // Linha própria: abaixo do estoque e da carteira (cada bloco ocupa 18px)
+        const yP = topPad + chartH + 58 + (haStkData ? 18 : 0) + (temCarteira ? 18 : 0);
+        return `<rect x="${x+1}" y="${yP}" width="${barW-2}" height="14" fill="${bgP}" rx="3"/>
+                <text x="${cx}" y="${yP+10}" text-anchor="middle" font-size="8.5" fill="${corP}" font-weight="${remc?'800':'600'}" font-family="Barlow,sans-serif">${txtP}</text>`;
       })() : ''}
       ${clickable ? `<title>Clique para ${isIgnorado?'voltar a considerar':'ignorar'} este mês no cálculo</title>` : ''}
     </g>`;

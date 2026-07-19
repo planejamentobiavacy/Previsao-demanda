@@ -585,7 +585,7 @@
     position: sticky; left: 46px; z-index: 2; background: #fff; width: 30px; min-width: 30px;
   }
   #gradeTable th:nth-child(3), #gradeTable td:nth-child(3) {
-    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 255px; max-width: 255px;
+    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 332px; max-width: 332px;
     box-shadow: 2px 0 4px rgba(0,0,0,0.04);
   }
   #gradeTable thead th:nth-child(1),
@@ -3895,6 +3895,12 @@ function atualizarCartoesResumo(allRows, meses) {
   const metaPorMes = {};
   meses.forEach(m => { if (m && m.anomes) metaPorMes[m.anomes] = m.vendaT || 0; });
 
+  // Projeção que iria para produtos DESCONTINUADOS/ocultos (fora do total ativo), por mês
+  const descontPorMes = {};
+  allRows.forEach(r => {
+    if (!_isAtivo(r)) descontPorMes[r.anomes] = (descontPorMes[r.anomes] || 0) + (r.qtdProj || 0);
+  });
+
   el.innerHTML = anomesUnicos.map(am => {
     const total = rowsAtivas.filter(r=>r.anomes===am).reduce((s,r)=>s+(r.qtdProj||0),0);
     const cartCX = cartRealCX(am);
@@ -3909,7 +3915,7 @@ function atualizarCartoesResumo(allRows, meses) {
       <div class="sc-val" style="color:var(--accent)">${total.toLocaleString('pt-BR')} <span style="font-size:14px">CX</span></div>
       <div class="sc-sub">${paresProj > 0 ? paresProj.toLocaleString('pt-BR') + ' pares \u2192 ' : ''}${total.toLocaleString('pt-BR')} CX projetadas</div>
       <div class="sc-sub" style="margin-top:5px;padding-top:5px;border-top:1px dashed #e2e8f0;">\uD83C\uDFAF Meta: <strong style="color:#334155;">${meta.toLocaleString('pt-BR')} CX</strong></div>
-      <div class="sc-sub" style="color:${dcor};font-weight:700;" title="Projetado (ativos) − Meta parametrizada">\u0394 ${dsinal}${delta.toLocaleString('pt-BR')} CX${meta > 0 ? ` (${dsinal}${dpct}%)` : ''}</div>
+      <div class="sc-sub" style="color:${(descontPorMes[am]||0) > 0 ? '#b91c1c' : '#94a3b8'};font-weight:${(descontPorMes[am]||0) > 0 ? '700' : '500'};" title="Projeção que iria para produtos descontinuados/ocultos (fora do total ativo)">\uD83D\uDEAB Descontinuados: ${Math.round(descontPorMes[am]||0).toLocaleString('pt-BR')} CX</div>
       <div class="sc-sub" style="color:${cartCX > 0 ? '#166534' : '#94a3b8'};font-weight:${cartCX > 0 ? '700' : '500'};margin-top:2px;">\uD83E\uDDFE ${cartCX.toLocaleString('pt-BR')} CX em carteira</div>
     </div>`;
   }).join('') + `
@@ -3919,12 +3925,9 @@ function atualizarCartoesResumo(allRows, meses) {
       <div class="sc-sub">${anomesUnicos.length} meses projetados</div>
       ${(() => {
         const metaTot = Object.values(metaPorMes).reduce((s,v)=>s+v,0);
-        const dTot = totalGeral - metaTot;
-        const dPctTot = metaTot > 0 ? Math.round((dTot/metaTot)*100) : 0;
-        const cTot = dTot > 0 ? '#166534' : (dTot < 0 ? '#b91c1c' : '#64748b');
-        const sTot = dTot > 0 ? '+' : '';
+        const descTot = Object.values(descontPorMes).reduce((s,v)=>s+v,0);
         return `<div class="sc-sub" style="margin-top:5px;padding-top:5px;border-top:1px dashed #e2e8f0;">\uD83C\uDFAF Meta: <strong style="color:#334155;">${metaTot.toLocaleString('pt-BR')} CX</strong></div>
-      <div class="sc-sub" style="color:${cTot};font-weight:700;">\u0394 ${sTot}${dTot.toLocaleString('pt-BR')} CX${metaTot > 0 ? ` (${sTot}${dPctTot}%)` : ''}</div>`;
+      <div class="sc-sub" style="color:${descTot > 0 ? '#b91c1c' : '#94a3b8'};font-weight:${descTot > 0 ? '700' : '500'};" title="Projeção que iria para produtos descontinuados/ocultos (fora do total ativo)">\uD83D\uDEAB Descontinuados: ${Math.round(descTot).toLocaleString('pt-BR')} CX</div>`;
       })()}
       <div class="sc-sub" style="color:${cartTotal > 0 ? '#166534' : '#94a3b8'};font-weight:${cartTotal > 0 ? '700' : '500'};margin-top:2px;">\uD83E\uDDFE ${Math.round(cartTotal).toLocaleString('pt-BR')} CX em carteira</div>
     </div>
@@ -5246,7 +5249,7 @@ function doRenderGradeTab() {
         ${isCarteira ? `<span onclick="event.stopPropagation(); abrirVinculoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Este item da carteira é o mesmo de um produto que já existe no histórico? Clique para vinculá-los e tratar como UMA opção só (a carteira gruda no produto histórico)." style="margin-left:6px;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #c7d2fe;cursor:pointer;">🔗 VINCULAR A EXISTENTE</span>` : ''}
         ${emSellout ? '<span title="Produto descontinuado — vendendo o estoque de forma decrescente até esgotar. Estes valores ficam chumbados e o restante do mês é redistribuído entre os ativos." style="margin-left:8px;background:#f59e0b;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;cursor:help;">⏳ ESGOTANDO ESTOQUE</span>' : ''}
         ${strike ? '<span style="margin-left:8px;background:#dc2626;color:#fff;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;">DESCONTINUADO</span>' : ''}
-        ${(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean]) ? `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Um ou mais meses projetados não têm histórico próprio deste produto — usando sazonalidade da MARCA. Clique para escolher um produto-espelho." style="margin-left:8px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #fde68a;cursor:pointer;">⚠️ SAZ. MARCA (${[...new Set(window._fallbackPorOpcao[opKeyClean].meses)].map(am => am.substring(4,6)+'/'+am.substring(2,4)).join(', ')}) 🪞</span>` : ''}
+        ${(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean]) ? `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${g.nome_familia.replace(/'/g,"\\'")}','${g.desc_cor.replace(/'/g,"\\'")}')" title="Um ou mais meses projetados não têm histórico próprio deste produto — usando sazonalidade da MARCA. Clique para escolher um produto-espelho." style="margin-left:8px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-size:6.5px;font-weight:800;letter-spacing:0.2px;border:1px solid #fde68a;cursor:pointer;vertical-align:middle;">⚠️ SAZ. MARCA (${[...new Set(window._fallbackPorOpcao[opKeyClean].meses)].map(am => am.substring(4,6)+'/'+am.substring(2,4)).join(', ')}) 🪞</span>` : ''}
         ${(() => {
           // Prioriza a ESCOLHA MANUAL do espelho (aparece na hora, mesmo antes do recálculo aplicar)
           const manual = window._espelhoManual && window._espelhoManual[opKeyClean];
@@ -5256,7 +5259,7 @@ function doRenderGradeTab() {
           if (!espTxt) return '';
           const esc = s => String(s).replace(/"/g,'&quot;');
           const famEsc = g.nome_familia.replace(/'/g,"\\'"), corEsc = g.desc_cor.replace(/'/g,"\\'");
-          return `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${famEsc}','${corEsc}')" title="Sazonalidade herdada do produto-espelho: ${esc(espTxt)}. Clique para trocar." style="margin-left:8px;background:${ehManual ? '#6d28d9' : '#ede9fe'};color:${ehManual ? '#fff' : '#6d28d9'};padding:2px 8px;border-radius:3px;font-size:9px;font-weight:800;letter-spacing:0.5px;border:1px solid #ddd6fe;cursor:pointer;">🪞 ESPELHO: ${esc(String(espTxt).toUpperCase())}</span>`;
+          return `<span onclick="event.stopPropagation(); abrirEspelhoPicker('${famEsc}','${corEsc}')" title="Sazonalidade herdada do produto-espelho: ${esc(espTxt)}. Clique para trocar." style="margin-left:8px;background:${ehManual ? '#6d28d9' : '#ede9fe'};color:${ehManual ? '#fff' : '#6d28d9'};padding:1px 5px;border-radius:3px;font-size:6.5px;font-weight:800;letter-spacing:0.2px;border:1px solid #ddd6fe;cursor:pointer;vertical-align:middle;">🪞 ESPELHO: ${esc(String(espTxt).toUpperCase())}</span>`;
         })()}
       </td>
       <td style="font-size:11.5px;color:#64748b;${dimTxt}">${(window._colecaoPorProduto && window._colecaoPorProduto[opKeyClean]) ? window._colecaoPorProduto[opKeyClean] : '—'}</td>

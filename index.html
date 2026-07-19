@@ -1183,7 +1183,7 @@
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto;">
           <div style="position:relative;">
-            <input type="text" id="gradeSearch" placeholder="🔍 Buscar por família, cor ou grade..." oninput="filterGradeTable()"
+            <input type="text" id="gradeSearch" placeholder="🔍 Buscar por família, cor ou grade..." oninput="filterGradeTableDebounced()"
               style="background:#fff;border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-family:'Barlow',sans-serif;font-size:13px;font-weight:500;padding:9px 14px 9px 14px;outline:none;width:320px;transition:border-color 0.18s;">
           </div>
           <span id="gradeSearchInfo" style="font-size:11px;color:#64748b;font-weight:600;"></span>
@@ -1214,8 +1214,7 @@
               <th>Opção (Família + Cor)</th>
               <th>Coleção</th>
               <th class="right">Proj. Opção (CX)</th>
-              <th class="right">Proj. Opção (Pares)</th>
-              <th class="right">Grades</th>
+              <th style="text-align:center;">Projeção mensal</th>
               <th class="right">Histórico</th>
             </tr>
           </thead>
@@ -4676,15 +4675,34 @@ function renderGradeTab() {
   if (!window._exportData) return;
 
   const bodyEl = document.getElementById('gradeBody');
-  if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="8" style="padding:30px;text-align:center;color:#64748b;">⏳ Carregando projeção por grade…</td></tr>';
+  if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="7" style="padding:30px;text-align:center;color:#64748b;">⏳ Carregando projeção por grade…</td></tr>';
 
   if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
   if (typeof atualizarBotaoDescontinuados === 'function') atualizarBotaoDescontinuados();
   setTimeout(() => doRenderGradeTab(), 50);
 }
 
+// Mini-gráfico de linha (sparkline) LEVE da projeção mensal
+function _sparklineProj(serie, meses) {
+  const n = serie.length;
+  if (!n || serie.every(v => !v)) return '<span style="color:#cbd5e1;font-size:10px;">—</span>';
+  const w = 132, h = 34, pad = 5;
+  const max = Math.max(...serie, 1);
+  const xStep = n > 1 ? (w - 2 * pad) / (n - 1) : 0;
+  const yv = v => h - pad - (v / max) * (h - 2 * pad);
+  const pts = serie.map((v, i) => [pad + i * xStep, yv(v)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const area = line + ` L ${(pad + (n - 1) * xStep).toFixed(1)} ${h - pad} L ${pad} ${h - pad} Z`;
+  const mlbl = am => am ? (am.substring(4, 6) + '/' + am.substring(2, 4)) : '';
+  const tip = serie.map((v, i) => `${mlbl(meses[i])}: ${Math.round(v).toLocaleString('pt-BR')}`).join(' · ');
+  const lx = pts[n - 1][0].toFixed(1), ly = pts[n - 1][1].toFixed(1);
+  // Só 2 paths + 1 ponto final + 1 título (leve para renderizar em milhares de linhas)
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin:0 auto;"><title>${tip} (CX)</title><path d="${area}" fill="#7c3aed" opacity="0.09"/><path d="${line}" fill="none" stroke="#7c3aed" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${lx}" cy="${ly}" r="2.4" fill="#7c3aed"/></svg>`;
+}
+
 function doRenderGradeTab() {
   const { allRows, forn, marca, meses } = window._exportData;
+  const mesesArr = meses.map(m => m.anomes).sort();   // meses projetados em ordem (p/ o mini-gráfico)
   // Garante o mapa produto→coleção atualizado para exibir a coluna
   if (typeof _buildColecaoPorProduto === 'function') _buildColecaoPorProduto();
 
@@ -5080,13 +5098,14 @@ function doRenderGradeTab() {
   const fmtAM  = m => `${m.substring(4,6)}/${m.substring(0,4)}`;
 
   const tbody = document.getElementById('gradeBody');
-  const _bodyHtml = gruposArr.map((g, idx) => {
+  const _entradas = [];
+  gruposArr.forEach((g, idx) => {
     const opKey = `grupo-${idx}`;
     const opKeyClean = g.nome_familia + '|||' + g.desc_cor;
     // Produtos de coleção oculta não aparecem na lista (ficam fora da projeção)
-    if (typeof _colecaoExcluida === 'function' && _colecaoExcluida(opKeyClean)) return '';
+    if (typeof _colecaoExcluida === 'function' && _colecaoExcluida(opKeyClean)) return;
     // Descontinuados NÃO aparecem na lista de demanda (continuam acessíveis pelo modal "⛔ Descontinuados")
-    if (window._opcoesDesativadas && window._opcoesDesativadas.has(opKeyClean)) return '';
+    if (window._opcoesDesativadas && window._opcoesDesativadas.has(opKeyClean)) return;
     const isCarteira = !!(window._carteiraNovos && window._carteiraNovos[opKeyClean]);
     const isOpAtiva = !window._opcoesDesativadas || !window._opcoesDesativadas.has(opKeyClean);
     const emSellout = !isOpAtiva && (g.projOpcao > 0);   // descontinuado ainda esgotando estoque
@@ -5124,8 +5143,13 @@ function doRenderGradeTab() {
       </td>
       <td style="font-size:11.5px;color:#64748b;${dimTxt}">${(window._colecaoPorProduto && window._colecaoPorProduto[opKeyClean]) ? window._colecaoPorProduto[opKeyClean] : '—'}</td>
       <td class="right"><span class="badge badge-success" style="${strike ? 'background:#e2e8f0;color:#94a3b8;text-decoration:line-through;' : (emSellout ? 'background:#fef3c7;color:#b45309;' : '')}">${fmtInt(g.projOpcao)} CX</span></td>
-      <td class="right" style="color:#64748b;${dimTxt}">${fmtInt(g.projOpcao * 12)}</td>
-      <td class="right" style="color:#7c3aed;font-weight:700;">${g.grades.length}</td>
+      <td style="padding:2px 8px;">${(() => {
+        let serie = mesesArr.map(am => { let v = 0; (g.grades || []).forEach(gr => { v += (gr.porMes && gr.porMes[am]) || 0; }); return v; });
+        if (serie.every(v => !v) && window._projCartMes && window._projCartMes[opKeyClean]) {
+          serie = mesesArr.map(am => Math.round((window._projCartMes[opKeyClean][am]) || 0));
+        }
+        return _sparklineProj(serie, mesesArr);
+      })()}</td>
       <td class="right"><button class="btn-hist" onclick="event.stopPropagation(); showHist('${g.nome_familia.replace(/'/g,"\\'")}', '${g.desc_cor.replace(/'/g,"\\'")}', '${forn}', '${marca}')">📈 Ver</button></td>
     </tr>`;
 
@@ -5155,29 +5179,38 @@ function doRenderGradeTab() {
           </td>
           <td></td>
           <td class="right" style="font-weight:700;color:${isGradeAtiva?'#059669':'#cbd5e1'};${!isGradeAtiva?'text-decoration:line-through;':''}">${fmtInt(gr.qtdProj)} CX</td>
-          <td class="right" style="color:#64748b;font-size:12px;${!isGradeAtiva?'text-decoration:line-through;color:#cbd5e1;':''}">${fmtInt(gr.qtdProj * 12)} pares</td>
-          <td class="right" style="color:#1d4ed8;font-size:12px;">${gr.mesesHist}m hist.</td>
+          <td class="right" style="color:#1d4ed8;font-size:11px;">${gr.mesesHist}m hist.</td>
           <td class="right"><button class="btn-hist" onclick="event.stopPropagation(); showHistGrade('${g.nome_familia.replace(/'/g,"\\'")}', '${g.desc_cor.replace(/'/g,"\\'")}', '${String(gr.grade).replace(/'/g,"\\'")}', '${(gr.desc_grade || '').replace(/'/g,"\\'")}', '${forn}', '${marca}')">📈 Ver</button></td>
         </tr>`;
         }).join('')
       : `<tr class="grade-row grade-row-${opKey}" style="display:none;background:#fafbfc;">
-          <td></td><td></td><td colspan="6" style="padding:14px;color:#94a3b8;font-style:italic;text-align:center;">⚠️ Sem grades vinculadas — projeção atribuída direto à opção</td>
+          <td></td><td></td><td colspan="5" style="padding:14px;color:#94a3b8;font-style:italic;text-align:center;">⚠️ Sem grades vinculadas — projeção atribuída direto à opção</td>
         </tr>`;
 
-    return headerRow + gradesRows;
-  }).join('');
+    const gradesDescs = (g.grades || []).map(gr => (gr.desc_grade || '') + ' ' + gr.grade).join(' ');
+    _entradas.push({
+      html: headerRow + gradesRows,
+      opKey, opKeyClean,
+      searchText: (g.nome_familia + ' ' + g.desc_cor + ' ' + (g.opcao || '') + ' ' + (g.codCor || '') + ' ' + gradesDescs).toLowerCase(),
+      ehNovo: isCarteira,
+      temEspelho: (typeof _opcaoTemEspelho === 'function') ? _opcaoTemEspelho(opKeyClean) : false,
+      fallback: !!(window._fallbackPorOpcao && window._fallbackPorOpcao[opKeyClean])
+    });
+  });
+
+  window._gradeEntradas = _entradas;
 
   // Estado vazio: nenhum produto visível (ex.: todas as coleções ocultas)
-  if (!_bodyHtml.trim()) {
+  if (!_entradas.length) {
     const totalOcultas = (window._colecoesDesativadas && window._colecoesDesativadas.size) || 0;
-    tbody.innerHTML = `<tr><td colspan="8" style="padding:40px 24px;text-align:center;color:#64748b;">
+    tbody.innerHTML = `<tr><td colspan="7" style="padding:40px 24px;text-align:center;color:#64748b;">
       <div style="font-size:15px;font-weight:700;color:#334155;margin-bottom:6px;">Nenhum produto para exibir</div>
       <div style="font-size:13px;">${totalOcultas > 0
         ? `Você ocultou <strong>${totalOcultas}</strong> coleção(ões). Abra o filtro <strong>🏷️ Coleções</strong> e marque ao menos uma para ver os produtos.`
         : 'Ajuste os filtros para ver os produtos.'}</div>
     </td></tr>`;
   } else {
-    tbody.innerHTML = _bodyHtml;
+    _renderGradePagina(true);   // renderiza a 1ª página (~50 opções)
   }
 
   window._gradeData = linhasGrade;
@@ -5214,20 +5247,65 @@ function doRenderGradeTab() {
     if (nEsp > 0 && !window._filtroEspelhoAtivo) btnEsp.textContent = `🪞 Espelho (${nEsp})`;
   }
 
-  // Restaura estado de expansão dos grupos (mapeando por família+cor)
-  if (window._expandidosGradePorProduto && window._expandidosGradePorProduto.size > 0) {
-    gruposArr.forEach((g, idx) => {
-      const opKey = `grupo-${idx}`;
-      const persistKey = g.nome_familia + '|||' + g.desc_cor;
-      if (window._expandidosGradePorProduto.has(persistKey)) {
-        // Reabre o grupo
-        const rows = document.querySelectorAll('.grade-row-' + opKey);
-        const icon = document.getElementById(opKey + '-icon');
-        rows.forEach(r => { r.style.display = 'table-row'; });
-        if (icon) icon.textContent = '▼';
+  // Restaura expansão dos grupos renderizados
+  _reaplicarExpansaoGrade();
+}
+
+// Reabre os grupos que estavam expandidos (só nos que estão renderizados na página)
+function _reaplicarExpansaoGrade() {
+  if (!window._expandidosGradePorProduto || window._expandidosGradePorProduto.size === 0) return;
+  document.querySelectorAll('#gradeBody tr.grade-grupo-header').forEach(tr => {
+    const persistKey = tr.dataset.opKey;
+    if (persistKey && window._expandidosGradePorProduto.has(persistKey)) {
+      const iconEl = tr.querySelector('[id$="-icon"]');
+      if (iconEl) {
+        const opKey = iconEl.id.replace('-icon', '');
+        document.querySelectorAll('.grade-row-' + opKey).forEach(r => { r.style.display = 'table-row'; });
+        iconEl.textContent = '▼';
       }
-    });
+    }
+  });
+}
+
+// ── PAGINAÇÃO / RENDER LEVE DA LISTA DE DEMANDA ──────────────────────
+const _GRADE_PAGE_SIZE = 50;
+function _renderGradePagina(reset) {
+  const tbody = document.getElementById('gradeBody');
+  if (!tbody || !window._gradeEntradas) return;
+  if (reset) window._gradePageCount = 1;
+
+  const q = (document.getElementById('gradeSearch')?.value || '').trim().toLowerCase();
+  let lista = window._gradeEntradas;
+  if (q)                          lista = lista.filter(e => e.searchText.includes(q));
+  if (window._filtroNovosAtivo)   lista = lista.filter(e => e.ehNovo);
+  if (window._filtroEspelhoAtivo) lista = lista.filter(e => e.temEspelho);
+  if (window._filtroFallbackAtivo)lista = lista.filter(e => e.fallback);
+
+  const total = lista.length;
+  const mostrar = Math.min(total, (window._gradePageCount || 1) * _GRADE_PAGE_SIZE);
+  let html = lista.slice(0, mostrar).map(e => e.html).join('');
+
+  if (!html) {
+    tbody.innerHTML = `<tr><td colspan="7" style="padding:36px 24px;text-align:center;color:#64748b;font-size:13px;">Nenhum produto para o filtro/busca atual.</td></tr>`;
+  } else {
+    if (mostrar < total) {
+      const prox = Math.min(_GRADE_PAGE_SIZE, total - mostrar);
+      html += `<tr><td colspan="7" style="padding:12px;text-align:center;background:#f8fafc;border-top:1px solid #e5e7eb;">
+        <button onclick="window._gradePageCount=(window._gradePageCount||1)+1; _renderGradePagina(false);"
+          style="background:#1e3a8a;color:#fff;border:none;padding:8px 20px;border-radius:6px;font-weight:800;font-size:12px;cursor:pointer;font-family:Barlow,sans-serif;">
+          ⬇ Carregar mais ${prox} <span style="opacity:0.8;font-weight:600;">(mostrando ${mostrar} de ${total})</span>
+        </button></td></tr>`;
+    }
+    tbody.innerHTML = html;
   }
+
+  const infoEl = document.getElementById('gradeSearchInfo');
+  if (infoEl) {
+    const filtrando = q || window._filtroNovosAtivo || window._filtroEspelhoAtivo || window._filtroFallbackAtivo;
+    infoEl.textContent = filtrando ? `${total} opção(ões)${mostrar < total ? ` · mostrando ${mostrar}` : ''}` : '';
+  }
+
+  _reaplicarExpansaoGrade();
 }
 
 // Mostra gráfico histórico filtrado para uma grade específica
@@ -6446,31 +6524,7 @@ function toggleFiltroNovos() {
 }
 
 function aplicarFiltroNovos() {
-  const rows = document.querySelectorAll('#gradeBody tr.grade-grupo-header');
-  const novos = window._carteiraNovos || {};
-  let visiveis = 0;
-  rows.forEach(tr => {
-    const opKey = tr.dataset.opKey;
-    if (!window._filtroNovosAtivo) {
-      tr.style.display = '';
-      const iconEl = tr.querySelector('[id$="-icon"]');
-      if (iconEl) {
-        const grupoKey = iconEl.id.replace('-icon','');
-        document.querySelectorAll('.grade-row-' + grupoKey).forEach(gr => gr.style.display = 'none');
-        iconEl.textContent = '▶';
-      }
-    } else {
-      const ehNovo = opKey && novos[opKey];
-      tr.style.display = ehNovo ? '' : 'none';
-      if (ehNovo) visiveis++;
-    }
-  });
-  const infoEl = document.getElementById('gradeSearchInfo');
-  if (window._filtroNovosAtivo && infoEl) {
-    infoEl.textContent = `${visiveis} produto(s) novo(s) da carteira`;
-  } else if (infoEl) {
-    infoEl.textContent = '';
-  }
+  _renderGradePagina(true);
 }
 
 // Retorna true se a opção usa espelho (manual OU automático)
@@ -6500,30 +6554,7 @@ function toggleFiltroEspelho() {
 }
 
 function aplicarFiltroEspelho() {
-  const rows = document.querySelectorAll('#gradeBody tr.grade-grupo-header');
-  let visiveis = 0;
-  rows.forEach(tr => {
-    const opKey = tr.dataset.opKey;
-    if (!window._filtroEspelhoAtivo) {
-      tr.style.display = '';
-      const iconEl = tr.querySelector('[id$="-icon"]');
-      if (iconEl) {
-        const grupoKey = iconEl.id.replace('-icon','');
-        document.querySelectorAll('.grade-row-' + grupoKey).forEach(gr => gr.style.display = 'none');
-        iconEl.textContent = '▶';
-      }
-    } else {
-      const tem = _opcaoTemEspelho(opKey);
-      tr.style.display = tem ? '' : 'none';
-      if (tem) visiveis++;
-    }
-  });
-  const infoEl = document.getElementById('gradeSearchInfo');
-  if (window._filtroEspelhoAtivo && infoEl) {
-    infoEl.textContent = `${visiveis} produto(s) com espelho`;
-  } else if (infoEl) {
-    infoEl.textContent = '';
-  }
+  _renderGradePagina(true);
 }
 
 function toggleFiltroFallback() {
@@ -6544,96 +6575,19 @@ function toggleFiltroFallback() {
 }
 
 function aplicarFiltroFallback() {
-  const rows = document.querySelectorAll('#gradeBody tr.grade-grupo-header');
-  const fallback = window._fallbackPorOpcao || {};
-  let visiveis = 0;
-  rows.forEach(tr => {
-    const opKey = tr.dataset.opKey;
-    if (!_filtroFallbackAtivo) {
-      tr.style.display = '';
-      // Recolhe grades
-      const iconEl = tr.querySelector('[id$="-icon"]');
-      if (iconEl) {
-        const grupoKey = iconEl.id.replace('-icon','');
-        document.querySelectorAll('.grade-row-' + grupoKey).forEach(gr => gr.style.display = 'none');
-        iconEl.textContent = '▶';
-      }
-    } else {
-      const temFallback = opKey && fallback[opKey];
-      tr.style.display = temFallback ? '' : 'none';
-      if (temFallback) visiveis++;
-    }
-  });
-  const infoEl = document.getElementById('gradeSearchInfo');
-  if (_filtroFallbackAtivo && infoEl) {
-    infoEl.textContent = `${visiveis} opção(ões) usando sazonalidade da marca`;
-  } else if (infoEl) {
-    infoEl.textContent = '';
-  }
+  window._filtroFallbackAtivo = _filtroFallbackAtivo;
+  _renderGradePagina(true);
+}
+
+let _gradeSearchTimer = null;
+function filterGradeTableDebounced() {
+  clearTimeout(_gradeSearchTimer);
+  _gradeSearchTimer = setTimeout(filterGradeTable, 180);
 }
 
 function filterGradeTable() {
-  const q = (document.getElementById('gradeSearch')?.value || '').trim().toLowerCase();
-  const rows = document.querySelectorAll('#gradeBody tr');
-  const infoEl = document.getElementById('gradeSearchInfo');
-
-  if (!q) {
-    // Sem busca — restaura o estado padrão (opções visíveis, grades ocultas)
-    rows.forEach(r => {
-      if (r.classList.contains('grade-grupo-header')) {
-        r.style.display = '';
-      } else if (r.classList.contains('grade-row')) {
-        r.style.display = 'none';
-      }
-    });
-    // Reseta ícones
-    document.querySelectorAll('[id^="grupo-"][id$="-icon"]').forEach(ic => ic.textContent = '▶');
-    if (infoEl) infoEl.textContent = '';
-    return;
-  }
-
-  let opcoesVisiveis = 0;
-  let gradesVisiveis = 0;
-
-  // Agrupa: primeiro passa nas grade-rows para identificar quais opções têm matches nas grades
-  const opcoesComMatch = new Set();
-  rows.forEach(r => {
-    if (r.classList.contains('grade-row')) {
-      const txt = r.dataset.search || '';
-      if (txt.includes(q)) {
-        // Identifica o grupo (opKey) a partir das classes
-        const classes = [...r.classList];
-        const opKeyClass = classes.find(c => c.startsWith('grade-row-grupo-'));
-        if (opKeyClass) {
-          const opKey = opKeyClass.replace('grade-row-', '');
-          opcoesComMatch.add(opKey);
-        }
-      }
-    }
-  });
-
-  // Agora mostra: opções que dão match no header OU que têm grades com match
-  let currentOpKey = null;
-  let currentOpMatchesHeader = false;
-  rows.forEach(r => {
-    if (r.classList.contains('grade-grupo-header')) {
-      const iconEl = r.querySelector('[id$="-icon"]');
-      currentOpKey = iconEl ? iconEl.id.replace('-icon','') : null;
-      const txt = r.dataset.search || '';
-      currentOpMatchesHeader = txt.includes(q);
-      const opMatchesGrade = currentOpKey && opcoesComMatch.has(currentOpKey);
-      const show = currentOpMatchesHeader || opMatchesGrade;
-      r.style.display = show ? '' : 'none';
-      if (show) opcoesVisiveis++;
-      // Busca mantém os grupos RECOLHIDOS (exibição reduzida) — expande manualmente se quiser
-      if (iconEl) iconEl.textContent = '▶';
-    } else if (r.classList.contains('grade-row')) {
-      // Grades ficam ocultas durante a busca; o usuário expande a opção manualmente
-      r.style.display = 'none';
-    }
-  });
-
-  if (infoEl) infoEl.textContent = `${opcoesVisiveis} opção(ões)`;
+  // Busca opera sobre o conjunto completo em memória e renderiza paginado (leve)
+  _renderGradePagina(true);
 }
 
 function filterCompraTable() {
@@ -6691,6 +6645,14 @@ function toggleGradeGrupo(opKey) {
   const isHidden = rows[0].style.display === 'none';
   rows.forEach(r => { r.style.display = isHidden ? 'table-row' : 'none'; });
   if (icon) icon.textContent = isHidden ? '▼' : '▶';
+  // Persiste a expansão (para sobreviver ao "Carregar mais", filtros e re-render)
+  if (!window._expandidosGradePorProduto) window._expandidosGradePorProduto = new Set();
+  const headerTr = icon ? icon.closest('tr') : null;
+  const persistKey = headerTr ? headerTr.dataset.opKey : null;
+  if (persistKey) {
+    if (isHidden) window._expandidosGradePorProduto.add(persistKey);
+    else window._expandidosGradePorProduto.delete(persistKey);
+  }
 }
 
 // Download robusto: anexa o link ao DOM antes de clicar (senão alguns navegadores ignoram)

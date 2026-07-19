@@ -8069,6 +8069,8 @@ function recalcularComMesesIgnorados() {
   if (window._exportData) {
     const { forn, marca } = window._exportData;
     renderResultsMulti(allRows, { forn, marca, meses });
+    // Atualiza a lista de grade (minigráficos, projeções, badges) após o recálculo
+    if (window._gradeEntradas && typeof renderGradeTab === 'function') renderGradeTab();
   }
 }
 

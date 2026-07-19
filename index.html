@@ -589,6 +589,29 @@
     top: 0;
     z-index: 5;
   }
+  /* Congela na horizontal: check + expandir + Opção */
+  #gradeTable th:nth-child(1), #gradeTable td:nth-child(1) {
+    position: sticky; left: 0; z-index: 2; background: #fff; width: 46px; min-width: 46px;
+  }
+  #gradeTable th:nth-child(2), #gradeTable td:nth-child(2) {
+    position: sticky; left: 46px; z-index: 2; background: #fff; width: 30px; min-width: 30px;
+  }
+  #gradeTable th:nth-child(3), #gradeTable td:nth-child(3) {
+    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 300px;
+    box-shadow: 2px 0 4px rgba(0,0,0,0.04);
+  }
+  #gradeTable thead th:nth-child(1),
+  #gradeTable thead th:nth-child(2),
+  #gradeTable thead th:nth-child(3) {
+    background: var(--accent); z-index: 7;
+  }
+  /* Fundo sólido das colunas congeladas conforme o tipo de linha */
+  #gradeTable tbody tr:nth-child(even) td:nth-child(1),
+  #gradeTable tbody tr:nth-child(even) td:nth-child(2),
+  #gradeTable tbody tr:nth-child(even) td:nth-child(3) { background: #f8fafc; }
+  #gradeTable tbody tr:nth-child(odd) td:nth-child(1),
+  #gradeTable tbody tr:nth-child(odd) td:nth-child(2),
+  #gradeTable tbody tr:nth-child(odd) td:nth-child(3) { background: #ffffff; }
   #gradeTable tbody tr.grade-grupo-header td:nth-child(1),
   #gradeTable tbody tr.grade-grupo-header td:nth-child(2),
   #gradeTable tbody tr.grade-grupo-header td:nth-child(3) {
@@ -1226,7 +1249,8 @@
               <th style="width:30px;"></th>
               <th>Opção (Família + Cor)</th>
               <th>Coleção</th>
-              <th class="right">Proj. Opção (CX)</th>
+              <th class="right">Proj. (CX)</th>
+              <th class="right" title="Variação vs ano anterior: Projeção (Jul–Dez 2026) ÷ Faturamento (Jul–Dez 2025) − 1">Var. LY</th>
               <th style="text-align:center;">Projeção mensal</th>
               <th class="right">Histórico</th>
             </tr>
@@ -3851,8 +3875,19 @@ function atualizarCartoesResumo(allRows, meses) {
   if (!el) return;
   allRows = allRows || (window._exportData && window._exportData.allRows) || [];
   meses = meses || (window._exportData && window._exportData.meses) || [];
-  const anomesUnicos = [...new Set(allRows.map(r=>r.anomes))].sort();
-  const totalGeral = allRows.reduce((s,r)=>s+(r.qtdProj||0),0);
+
+  // Conta só produtos ATIVOS (mesma regra da aba de Compra): fora descontinuados
+  // manuais e coleções ocultas. Assim o "Total Geral" bate com a Projeção de Compra.
+  const _isAtivo = r => {
+    const k = r.nome_familia + '|||' + r.desc_cor;
+    if (window._opcoesDesativadas && window._opcoesDesativadas.has(k)) return false;
+    if (typeof _colecaoExcluida === 'function' && _colecaoExcluida(k)) return false;
+    return true;
+  };
+  const rowsAtivas = allRows.filter(_isAtivo);
+
+  const anomesUnicos = [...new Set(rowsAtivas.map(r=>r.anomes))].sort();
+  const totalGeral = rowsAtivas.reduce((s,r)=>s+(r.qtdProj||0),0);
 
   // Carteira REAL por mês = saldo a faturar pela data da coluna "Previsão faturamento"
   // (cobre todas as linhas da carteira: novos + já-existentes). Em CX.
@@ -3866,9 +3901,9 @@ function atualizarCartoesResumo(allRows, meses) {
   const cartRealCX = am => Math.round((cartRealPorMes[am] || 0) / 12);
   const cartTotal = Object.values(cartRealPorMes).reduce((s,v)=>s+v,0) / 12;  // total do backlog (CX)
 
-  const skusComProj = [...new Set(allRows.filter(r=>r.qtdProj>0).map(r=>r.nome_familia+'|'+r.desc_cor))].length;
+  const skusComProj = [...new Set(rowsAtivas.filter(r=>r.qtdProj>0).map(r=>r.nome_familia+'|'+r.desc_cor))].length;
   el.innerHTML = anomesUnicos.map(am => {
-    const total = allRows.filter(r=>r.anomes===am).reduce((s,r)=>s+(r.qtdProj||0),0);
+    const total = rowsAtivas.filter(r=>r.anomes===am).reduce((s,r)=>s+(r.qtdProj||0),0);
     const cartCX = cartRealCX(am);
     const paresProj = total * 12;
     return `<div class="summary-card">
@@ -4433,12 +4468,25 @@ function doRenderCompraTab() {
     });
   });
 
+  // Carteira (Saldo a Faturar) POR MÊS, pela data de "Previsão faturamento" (produtos da compra)
+  const carteiraPorMes = {};
+  mesesOrdenados.forEach(am => carteiraPorMes[am] = 0);
+  if (window._carteiraPorProdMes) {
+    resultados.forEach(r => {
+      const info = window._carteiraPorProdMes[r.nome_familia + '|||' + r.desc_cor];
+      if (info && info.porMes) {
+        mesesOrdenados.forEach(am => { carteiraPorMes[am] += (info.porMes[am] || 0); }); // pares
+      }
+    });
+  }
+
   // Summary cards: um cartão de COMPRA por mês + totais
   const cardsMes = mesesOrdenados.map((am, idx) => `
     <div class="summary-card" style="border-top-color:#dc2626;">
       <div class="sc-label">🛒 ${fmtAM(am)}</div>
       <div class="sc-val" style="color:#dc2626">${fmtInt(compraPorMes[am])} <span style="font-size:14px">CX</span></div>
       <div class="sc-sub">${fmtInt(compraPorMes[am]*12)} pares · cobertura ${coberturaArr[idx].toLocaleString('pt-BR')}m</div>
+      <div class="sc-sub" style="color:#166534;font-weight:700;margin-top:2px;">🧾 Carteira: ${fmtInt(Math.round(carteiraPorMes[am]/12))} CX</div>
     </div>`).join('');
 
   document.getElementById('summaryCompra').innerHTML = cardsMes + `
@@ -4694,7 +4742,7 @@ function renderGradeTab() {
   if (!window._exportData) return;
 
   const bodyEl = document.getElementById('gradeBody');
-  if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="7" style="padding:30px;text-align:center;color:#64748b;">⏳ Carregando projeção por grade…</td></tr>';
+  if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="8" style="padding:30px;text-align:center;color:#64748b;">⏳ Carregando projeção por grade…</td></tr>';
 
   if (typeof atualizarBotaoColecao === 'function') atualizarBotaoColecao();
   if (typeof atualizarBotaoDescontinuados === 'function') atualizarBotaoDescontinuados();
@@ -4765,6 +4813,14 @@ function doRenderGradeTab() {
   const mesesArrSet = new Set(mesesArr);
   const mesesSpark = [...new Set([...mesesHistSet, ...mesesArr])].sort();  // histórico + projeção
   const projStartIdx = mesesSpark.findIndex(am => mesesArrSet.has(am));
+
+  // Var. LY: mesma janela no ano anterior (Jul–Dez 2025 p/ Jul–Dez 2026)
+  const mesesLYArr = mesesArr.map(am => (parseInt(am.substring(0,4)) - 1) + am.substring(4,6));
+  const histLYPorOpcao = {};  // familia|||cor → faturamento (CX) na janela do ano anterior
+  Object.keys(histOpcaoPorMes).forEach(k => {
+    const hs = histOpcaoPorMes[k];
+    histLYPorOpcao[k] = mesesLYArr.reduce((s, am) => s + (hs[am] || 0), 0);
+  });
 
   // Para cada mês projetado, calcula shares de grade dentro de cada opção (família+cor)
   const linhasGrade = [];
@@ -5198,6 +5254,16 @@ function doRenderGradeTab() {
       </td>
       <td style="font-size:11.5px;color:#64748b;${dimTxt}">${(window._colecaoPorProduto && window._colecaoPorProduto[opKeyClean]) ? window._colecaoPorProduto[opKeyClean] : '—'}</td>
       <td class="right"><span class="badge badge-success" style="${strike ? 'background:#e2e8f0;color:#94a3b8;text-decoration:line-through;' : (emSellout ? 'background:#fef3c7;color:#b45309;' : '')}">${fmtInt(g.projOpcao)} CX</span></td>
+      <td class="right">${(() => {
+        const hLY = histLYPorOpcao[opKeyClean] || 0;
+        if (hLY <= 0) return '<span style="color:#cbd5e1;font-size:11px;" title="Sem faturamento na mesma janela do ano anterior">—</span>';
+        const varLY = (g.projOpcao / hLY) - 1;
+        const pct = Math.round(varLY * 100);
+        const cor = pct > 0 ? '#166534' : (pct < 0 ? '#b91c1c' : '#64748b');
+        const bg  = pct > 0 ? '#dcfce7' : (pct < 0 ? '#fee2e2' : '#f1f5f9');
+        const sinal = pct > 0 ? '+' : '';
+        return `<span title="Proj. ${fmtInt(g.projOpcao)} CX (Jul–Dez 2026) ÷ ${fmtInt(hLY)} CX (Jul–Dez 2025) − 1" style="background:${bg};color:${cor};padding:2px 7px;border-radius:4px;font-size:11px;font-weight:800;">${sinal}${pct.toLocaleString('pt-BR')}%</span>`;
+      })()}</td>
       <td style="padding:2px 8px;">${(() => {
         const pj = projOpcaoPorMes[opKeyClean] || {};
         const hs = histOpcaoPorMes[opKeyClean] || {};
@@ -5243,12 +5309,13 @@ function doRenderGradeTab() {
           </td>
           <td></td>
           <td class="right" style="font-weight:700;color:${isGradeAtiva?'#059669':'#cbd5e1'};${!isGradeAtiva?'text-decoration:line-through;':''}">${fmtInt(gr.qtdProj)} CX</td>
+          <td></td>
           <td class="right" style="color:#1d4ed8;font-size:11px;">${gr.mesesHist}m hist.</td>
           <td class="right"><button class="btn-hist" onclick="event.stopPropagation(); showHistGrade('${g.nome_familia.replace(/'/g,"\\'")}', '${g.desc_cor.replace(/'/g,"\\'")}', '${String(gr.grade).replace(/'/g,"\\'")}', '${(gr.desc_grade || '').replace(/'/g,"\\'")}', '${forn}', '${marca}')">📈 Ver</button></td>
         </tr>`;
         }).join('')
       : `<tr class="grade-row grade-row-${opKey}" style="display:none;background:#fafbfc;">
-          <td></td><td></td><td colspan="5" style="padding:14px;color:#94a3b8;font-style:italic;text-align:center;">⚠️ Sem grades vinculadas — projeção atribuída direto à opção</td>
+          <td></td><td></td><td colspan="6" style="padding:14px;color:#94a3b8;font-style:italic;text-align:center;">⚠️ Sem grades vinculadas — projeção atribuída direto à opção</td>
         </tr>`;
 
     const gradesDescs = (g.grades || []).map(gr => (gr.desc_grade || '') + ' ' + gr.grade).join(' ');
@@ -5268,7 +5335,7 @@ function doRenderGradeTab() {
   // Estado vazio: nenhum produto visível (ex.: todas as coleções ocultas)
   if (!_entradas.length) {
     const totalOcultas = (window._colecoesDesativadas && window._colecoesDesativadas.size) || 0;
-    tbody.innerHTML = `<tr><td colspan="7" style="padding:40px 24px;text-align:center;color:#64748b;">
+    tbody.innerHTML = `<tr><td colspan="8" style="padding:40px 24px;text-align:center;color:#64748b;">
       <div style="font-size:15px;font-weight:700;color:#334155;margin-bottom:6px;">Nenhum produto para exibir</div>
       <div style="font-size:13px;">${totalOcultas > 0
         ? `Você ocultou <strong>${totalOcultas}</strong> coleção(ões). Abra o filtro <strong>🏷️ Coleções</strong> e marque ao menos uma para ver os produtos.`
@@ -5360,11 +5427,11 @@ function _renderGradePagina(reset) {
   let html = lista.slice(0, mostrar).map(e => e.html).join('');
 
   if (!html) {
-    tbody.innerHTML = `<tr><td colspan="7" style="padding:36px 24px;text-align:center;color:#64748b;font-size:13px;">Nenhum produto para o filtro/busca atual.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="padding:36px 24px;text-align:center;color:#64748b;font-size:13px;">Nenhum produto para o filtro/busca atual.</td></tr>`;
   } else {
     if (mostrar < total) {
       const prox = Math.min(_GRADE_PAGE_SIZE, total - mostrar);
-      html += `<tr><td colspan="7" style="padding:12px;text-align:center;background:#f8fafc;border-top:1px solid #e5e7eb;">
+      html += `<tr><td colspan="8" style="padding:12px;text-align:center;background:#f8fafc;border-top:1px solid #e5e7eb;">
         <button onclick="window._gradePageCount=(window._gradePageCount||1)+1; _renderGradePagina(false);"
           style="background:#1e3a8a;color:#fff;border:none;padding:8px 20px;border-radius:6px;font-weight:800;font-size:12px;cursor:pointer;font-family:Barlow,sans-serif;">
           ⬇ Carregar mais ${prox} <span style="opacity:0.8;font-weight:600;">(mostrando ${mostrar} de ${total})</span>

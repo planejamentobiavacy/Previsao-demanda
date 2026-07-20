@@ -589,15 +589,15 @@
     box-shadow: 2px 0 4px rgba(0,0,0,0.04);
   }
   /* Coleção */
-  #gradeTable th:nth-child(4), #gradeTable td:nth-child(4) { width: 90px; min-width: 90px; max-width: 90px; }
+  #gradeTable th:nth-child(4), #gradeTable td:nth-child(4) { width: 100px; min-width: 100px; max-width: 100px; }
   /* Proj. (CX) */
-  #gradeTable th:nth-child(5), #gradeTable td:nth-child(5) { width: 120px; min-width: 120px; max-width: 120px; }
-  /* Var. LY oculta (reduzida 100%) */
-  #gradeTable th:nth-child(6), #gradeTable td:nth-child(6) { display: none; }
+  #gradeTable th:nth-child(5), #gradeTable td:nth-child(5) { width: 135px; min-width: 135px; max-width: 135px; }
+  /* Var. LY */
+  #gradeTable th:nth-child(6), #gradeTable td:nth-child(6) { width: 85px; min-width: 85px; max-width: 85px; }
   /* Projeção mensal */
-  #gradeTable th:nth-child(7), #gradeTable td:nth-child(7) { width: 190px; min-width: 190px; max-width: 190px; }
+  #gradeTable th:nth-child(7), #gradeTable td:nth-child(7) { width: 240px; min-width: 240px; max-width: 240px; }
   /* Histórico */
-  #gradeTable th:nth-child(8), #gradeTable td:nth-child(8) { width: 120px; min-width: 120px; max-width: 120px; }
+  #gradeTable th:nth-child(8), #gradeTable td:nth-child(8) { width: 135px; min-width: 135px; max-width: 135px; }
   #gradeTable thead th:nth-child(1),
   #gradeTable thead th:nth-child(2),
   #gradeTable thead th:nth-child(3) {
@@ -1263,7 +1263,7 @@
       <div class="results-header" style="align-items:flex-end;flex-wrap:wrap;gap:14px;">
         <div>
           <strong style="font-size:15px">🛒 Projeção de Compra</strong>
-          <div class="results-meta">Considera estoque atual e cobertura desejada para sugerir quanto comprar</div>
+          <div class="results-meta">Considera estoque atual, cobertura desejada e abate a carteira (suprimento já encomendado) para sugerir quanto comprar</div>
         </div>
         <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-left:auto;">
           <div>
@@ -4284,7 +4284,7 @@ function doRenderCompraTab() {
   const cobFracArr  = coberturaArr.map((c, i) => c - cobFloorArr[i]);
 
   // Helper otimizado: recebe ARRAY de demandas (não Map), retorna resultado
-  function simularCompraMensal(demandaArr, estoqueInicial) {
+  function simularCompraMensal(demandaArr, estoqueInicial, carteiraArr) {
     let estoqueRunning = estoqueInicial;
     const linhaMeses = {};
     let totalCompra = 0;
@@ -4295,6 +4295,7 @@ function doRenderCompraTab() {
 
     for (let idx = 0; idx < nMesesOrd; idx++) {
       const demandaMes = demandaArr[idx] || 0;
+      const carteiraMes = (carteiraArr && carteiraArr[idx]) || 0;  // suprimento já encomendado (chega neste mês)
       totalDemanda += demandaMes;
       somaAte += demandaMes;
 
@@ -4318,12 +4319,14 @@ function doRenderCompraTab() {
       }
       coberturaCx = Math.round(coberturaCx);
 
-      const compraMes = Math.max(0, Math.round(coberturaCx + demandaMes - estoqueRunning));
-      const estoqueApos = estoqueRunning - demandaMes + compraMes;
+      // Carteira é suprimento: abate da necessidade de compra e repõe o estoque
+      const compraMes = Math.max(0, Math.round(coberturaCx + demandaMes - estoqueRunning - carteiraMes));
+      const estoqueApos = estoqueRunning - demandaMes + carteiraMes + compraMes;
 
       linhaMeses[mesesOrdenados[idx]] = {
         estoqueInicial: estoqueRunning > 0 ? Math.round(estoqueRunning) : 0,
         demanda: demandaMes,
+        carteira: Math.round(carteiraMes),
         coberturaDesejada: coberturaCx,
         compraSugerida: compraMes,
         estoqueApos: estoqueApos > 0 ? Math.round(estoqueApos) : 0
@@ -4388,6 +4391,12 @@ function doRenderCompraTab() {
     const demandaMap = demandaPorMesMap.get(prod.key) || new Map();
     const gradesMap  = gradesPorOpcao.get(prod.key);
 
+    // Carteira (suprimento já encomendado) da opção, em CX por mês (Previsão faturamento)
+    const _cartInfoP = window._carteiraPorProdMes && window._carteiraPorProdMes[prod.key];
+    const cartMesCX = mesesOrdenados.map(am => (_cartInfoP && _cartInfoP.porMes) ? Math.round((_cartInfoP.porMes[am] || 0) / 12) : 0);
+    const temCarteiraP = cartMesCX.some(v => v > 0);
+    const optDemArr = demandaToArr(demandaMap);   // demanda da opção por mês (base do rateio da carteira)
+
     // Calcula compra por grade
     const gradesResult = [];
     if (gradesMap && gradesMap.size > 0) {
@@ -4397,7 +4406,10 @@ function doRenderCompraTab() {
         let temDado = estoqueGrade > 0;
         if (!temDado) { for (let i = 0; i < nMesesOrd; i++) if (demArr[i] > 0) { temDado = true; break; } }
         if (!temDado) continue;
-        const sim = simularCompraMensal(demArr, estoqueGrade);
+        // Rateia a carteira da opção para a grade, proporcional à demanda da grade no mês
+        const cartGradeArr = temCarteiraP ? mesesOrdenados.map((am, i) =>
+          (optDemArr[i] > 0) ? (cartMesCX[i] * (demArr[i] / optDemArr[i])) : 0) : null;
+        const sim = simularCompraMensal(demArr, estoqueGrade, cartGradeArr);
         gradesResult.push({
           grade: entry.grade,
           desc_grade: entry.desc_grade,
@@ -4451,10 +4463,10 @@ function doRenderCompraTab() {
         totalDemanda += lm.demanda;
       }
     } else {
-      // Sem grades → cálculo direto na opção
+      // Sem grades → cálculo direto na opção (abate a carteira do mês)
       estoqueInicial = getEstoqueAtual(prod.nome_familia, prod.desc_cor);
       const demArr = demandaToArr(demandaMap);
-      const sim = simularCompraMensal(demArr, estoqueInicial);
+      const sim = simularCompraMensal(demArr, estoqueInicial, temCarteiraP ? cartMesCX : null);
       linhaMeses  = sim.meses;
       totalCompra = sim.totalCompra;
       totalDemanda = sim.totalDemanda;
@@ -4777,7 +4789,7 @@ function renderGradeTab() {
 function _sparklineProj(serie, meses, manualIdx, projStartIdx) {
   const n = serie.length;
   if (!n || serie.every(v => !v)) return '<span style="color:#cbd5e1;font-size:10px;">—</span>';
-  const w = 170, h = 34, pad = 5;
+  const w = 210, h = 34, pad = 5;
   const max = Math.max(...serie, 1);
   const xStep = n > 1 ? (w - 2 * pad) / (n - 1) : 0;
   const yv = v => h - pad - (v / max) * (h - 2 * pad);

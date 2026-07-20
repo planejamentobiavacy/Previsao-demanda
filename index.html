@@ -544,6 +544,7 @@
   /* Sticky para tabela de grade: checkbox + expand + opção */
   #gradeTable {
     width: max-content;
+    table-layout: fixed;
   }
   #gradeTable th:nth-child(1),
   #gradeTable td:nth-child(1) {
@@ -1236,6 +1237,9 @@
 
       <div class="table-wrap">
         <table id="gradeTable">
+          <colgroup>
+            <col style="width:46px"><col style="width:30px"><col style="width:300px"><col style="width:110px"><col style="width:150px"><col style="width:95px"><col style="width:260px"><col style="width:150px">
+          </colgroup>
           <thead>
             <tr>
               <th style="width:46px;text-align:center;" title="Ações em massa nos produtos visíveis">

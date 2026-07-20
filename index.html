@@ -1231,7 +1231,7 @@
       <div class="results-header" style="align-items:center;flex-wrap:wrap;gap:14px;">
         <div>
           <strong style="font-size:15px">📊 Projeção de Demanda</strong>
-          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-BP1</span></div>
+          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-BP2</span></div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto;">
           <div style="position:relative;">
@@ -4475,6 +4475,57 @@ window._extrairCodCor = function(opcao, fam, cor) {
   return cand || '';
 };
 
+// ── ORDENAÇÃO DA TABELA DE COMPRA (triângulos clicáveis no cabeçalho) ──
+window._compraSort = window._compraSort || { col: 'compra', dir: 'desc' };
+function _compraSortVal(r) {
+  switch ((window._compraSort || {}).col) {
+    case 'estoque':  return r.estoqueInicial || 0;
+    case 'demanda':  return r.totalDemanda || 0;
+    case 'carteira': {
+      const i = window._carteiraPorProdMes && window._carteiraPorProdMes[r.nome_familia + '|||' + r.desc_cor];
+      return i ? (i.total || 0) : 0;
+    }
+    case 'compra':
+    default:         return r.totalCompra || 0;
+  }
+}
+function _compraSortComparator(a, b) {
+  const dir = ((window._compraSort || {}).dir === 'asc') ? 1 : -1;
+  const va = _compraSortVal(a), vb = _compraSortVal(b);
+  if (va === vb) return (b.totalCompra || 0) - (a.totalCompra || 0);  // desempate: maior compra
+  return (va - vb) * dir;
+}
+function _updateCompraSortIndicators() {
+  const s = window._compraSort || { col: 'compra', dir: 'desc' };
+  document.querySelectorAll('#compraHead [data-sortcol]').forEach(th => {
+    const tri = th.querySelector('.sort-tri');
+    if (!tri) return;
+    if (th.getAttribute('data-sortcol') === s.col) {
+      tri.textContent = (s.dir === 'asc') ? '▲' : '▼';
+      tri.style.opacity = '1';
+    } else {
+      tri.textContent = '▲▼';
+      tri.style.opacity = '0.35';
+    }
+  });
+}
+function _resortCompra() {
+  const data = window._compraData || [];
+  data.sort(_compraSortComparator);
+  const tbody = document.getElementById('compraBody');
+  if (tbody) tbody.innerHTML = '';
+  window._compraRendered = 0;
+  if (typeof window._compraShowMore === 'function') window._compraShowMore();
+  _updateCompraSortIndicators();
+}
+function sortCompra(col) {
+  const s = window._compraSort || { col: 'compra', dir: 'desc' };
+  if (s.col === col) s.dir = (s.dir === 'asc') ? 'desc' : 'asc';
+  else { s.col = col; s.dir = 'desc'; }   // nova coluna começa em decrescente (maior primeiro)
+  window._compraSort = s;
+  _resortCompra();
+}
+
 function renderCompraTab() {
   if (!window._exportData) return;
 
@@ -4750,7 +4801,7 @@ function doRenderCompraTab() {
   } // end for produtos
 
   // Ordena por total a comprar desc
-  resultados.sort((a, b) => b.totalCompra - a.totalCompra);
+  resultados.sort(_compraSortComparator);
 
   // Estatísticas por mês
   const fmtInt = n => Number(n).toLocaleString('pt-BR');
@@ -4815,8 +4866,8 @@ function doRenderCompraTab() {
     <th style="width:32px;"></th>
     <th>Opção (Família + Cor)</th>
     <th>Coleção</th>
-    <th style="text-align:center;">Carteira</th>
-    <th class="right" style="width:52px;min-width:52px;max-width:52px;padding:5px 4px;font-size:10px;line-height:1.15;white-space:normal;word-break:break-word;">Estoque Atual</th>
+    <th data-sortcol="carteira" onclick="sortCompra('carteira')" title="Ordenar por Carteira" style="text-align:center;cursor:pointer;user-select:none;">Carteira <span class="sort-tri" style="font-size:8px;opacity:0.35;">▲▼</span></th>
+    <th class="right" data-sortcol="estoque" onclick="sortCompra('estoque')" title="Ordenar por Estoque Atual" style="cursor:pointer;user-select:none;width:52px;min-width:52px;max-width:52px;padding:5px 4px;font-size:10px;line-height:1.15;white-space:normal;word-break:break-word;">Estoque Atual <span class="sort-tri" style="font-size:8px;opacity:0.35;">▲▼</span></th>
     ${mesesOrdenados.map((am, idx) => `<th class="right" style="background:#1e3a8a;color:#fff;padding:6px 8px;">
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
         <span>📅 ${fmtAM(am)}</span>
@@ -4828,11 +4879,12 @@ function doRenderCompraTab() {
         </div>
       </div>
     </th>`).join('')}
-    <th style="background:#166534;color:#fff;text-align:center;width:54px;min-width:54px;max-width:54px;padding:5px 3px;font-size:9px;line-height:1.15;white-space:normal;word-break:break-word;">Proj. Demanda Total (CX)</th>
-    <th style="background:#7f1d1d;color:#fff;text-align:center;width:54px;min-width:54px;max-width:54px;padding:5px 3px;font-size:9px;line-height:1.15;white-space:normal;word-break:break-word;">Proj. Compra Total (CX)</th>
+    <th data-sortcol="demanda" onclick="sortCompra('demanda')" title="Ordenar por Demanda Total" style="background:#166534;color:#fff;text-align:center;cursor:pointer;user-select:none;width:54px;min-width:54px;max-width:54px;padding:5px 3px;font-size:9px;line-height:1.15;white-space:normal;word-break:break-word;">Proj. Demanda Total (CX) <span class="sort-tri" style="font-size:8px;opacity:0.35;">▲▼</span></th>
+    <th data-sortcol="compra" onclick="sortCompra('compra')" title="Ordenar por Compra Total" style="background:#7f1d1d;color:#fff;text-align:center;cursor:pointer;user-select:none;width:54px;min-width:54px;max-width:54px;padding:5px 3px;font-size:9px;line-height:1.15;white-space:normal;word-break:break-word;">Proj. Compra Total (CX) <span class="sort-tri" style="font-size:8px;opacity:0.35;">▲▼</span></th>
     <th class="right">Histórico</th>
   </tr>`;
   document.getElementById('compraHead').innerHTML = headHtml;
+  _updateCompraSortIndicators();
 
   // Body: linha por produto (com expansão de grades)
   const tbody = document.getElementById('compraBody');

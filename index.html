@@ -1231,7 +1231,7 @@
       <div class="results-header" style="align-items:center;flex-wrap:wrap;gap:14px;">
         <div>
           <strong style="font-size:15px">📊 Projeção de Demanda</strong>
-          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-BP3</span></div>
+          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-BP4</span></div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto;">
           <div style="position:relative;">
@@ -2478,7 +2478,8 @@ function _buildBaseProdutoMap() {
   const map = {};
   const inativas = new Set();
   produtoData.forEach(p => {
-    if (!p.ativo) { if (p.grade) inativas.add(p.grade); return; }   // ITEM_ATIVO = 0 → marca como inativa
+    if (!p.grade) return;
+    if (!p.ativo) inativas.add(p.grade);  // registra inativas (só para informação/marcação; NÃO exclui)
     if (map[p.grade]) return;             // 1ª ocorrência da grade
     const familia = p.nomeFamilia || p.opcao || '';
     const cor     = p.descCor || '';
@@ -2493,7 +2494,8 @@ function _buildBaseProdutoMap() {
       genero: p.genero || '',
       marca: p.marca || '',
       fornecedor: p.fornecedor || '',
-      descGrade: p.descGrade || ''
+      descGrade: p.descGrade || '',
+      inativo: !p.ativo
     };
   });
   window._baseProdutoMap = map;
@@ -2501,12 +2503,8 @@ function _buildBaseProdutoMap() {
   return map;
 }
 
-// Grade explicitamente INATIVA na base_produto? Grades ausentes da base NÃO são consideradas inativas
-// (o produto continua aparecendo com a identidade da própria venda). Sem base_produto → nada é inativo.
-function _gradeAtiva(grade) {
-  if (!window._baseProdutoInativas) return true;
-  return !window._baseProdutoInativas.has(_normGrade(grade));
-}
+// Mantido por compatibilidade: agora TODO item da base_produto é exibido (ativo ou inativo).
+function _gradeAtiva(grade) { return true; }
 
 // Aplica a base_produto: reescreve a identidade de cada linha de venda pela GRADE,
 // e injeta linhas "órfãs" para lotes que têm estoque mas não têm venda.
@@ -3110,7 +3108,7 @@ function calcularTodos() {
   if (!forn)  { toast('Selecione o fornecedor.', 'error'); return; }
   if (!marca) { toast('Selecione a marca.', 'error'); return; }
 
-  const base = rawData.filter(r => r.fornecedor === forn && r.marca === marca && _gradeAtiva(r.grade));
+  const base = rawData.filter(r => r.fornecedor === forn && r.marca === marca);
   if (!base.length) { toast('Nenhum dado encontrado para o filtro selecionado.', 'error'); return; }
 
   // Coleta todos os meses configurados

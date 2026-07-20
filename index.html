@@ -591,15 +591,15 @@
     box-shadow: 2px 0 4px rgba(0,0,0,0.04);
   }
   /* Coleção */
-  #gradeTable th:nth-child(4), #gradeTable td:nth-child(4) { width: 5.5%; max-width: none; }
+  #gradeTable th:nth-child(4), #gradeTable td:nth-child(4) { width: 5.5%; max-width: none; text-align: center; }
   /* Proj. (CX) */
-  #gradeTable th:nth-child(5), #gradeTable td:nth-child(5) { width: 7.5%; max-width: none; }
+  #gradeTable th:nth-child(5), #gradeTable td:nth-child(5) { width: 7.5%; max-width: none; text-align: center; }
   /* Var. LY */
-  #gradeTable th:nth-child(6), #gradeTable td:nth-child(6) { width: 5.5%; max-width: none; }
+  #gradeTable th:nth-child(6), #gradeTable td:nth-child(6) { width: 5.5%; max-width: none; text-align: center; }
   /* Projeção mensal */
-  #gradeTable th:nth-child(7), #gradeTable td:nth-child(7) { width: 11%; max-width: none; }
+  #gradeTable th:nth-child(7), #gradeTable td:nth-child(7) { width: 11%; max-width: none; text-align: center; }
   /* Histórico */
-  #gradeTable th:nth-child(8), #gradeTable td:nth-child(8) { width: 7.5%; max-width: none; }
+  #gradeTable th:nth-child(8), #gradeTable td:nth-child(8) { width: 7.5%; max-width: none; text-align: center; }
   #gradeTable thead th:nth-child(1),
   #gradeTable thead th:nth-child(2),
   #gradeTable thead th:nth-child(3) {
@@ -1214,7 +1214,7 @@
       <div class="results-header" style="align-items:center;flex-wrap:wrap;gap:14px;">
         <div>
           <strong style="font-size:15px">📊 Projeção de Demanda</strong>
-          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-OPC60</span></div>
+          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-OPC60c</span></div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto;">
           <div style="position:relative;">
@@ -4812,7 +4812,7 @@ function _sparklineProj(serie, meses, manualIdx, projStartIdx) {
   const tip = serie.map((v, i) => `${mlbl(meses[i])}: ${Math.round(v).toLocaleString('pt-BR')}${manSet.has(i) ? ' (manual)' : ''}${(i >= ps ? ' [proj]' : '')}`).join(' · ');
   const lx = pts[n - 1][0].toFixed(1), ly = pts[n - 1][1].toFixed(1);
   const manDots = (manualIdx || []).map(i => `<circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="2.4" fill="#2563eb" stroke="#fff" stroke-width="1"/>`).join('');
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin:0 auto;"><title>${tip} (CX)</title>` +
+  return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:${h}px;margin:0 auto;"><title>${tip} (CX)</title>` +
     (divX ? `<line x1="${divX}" y1="2" x2="${divX}" y2="${h - 2}" stroke="#059669" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.5"/>` : '') +
     (histPath ? `<path d="${histPath}" fill="none" stroke="${corHist}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>` : '') +
     (projPath ? `<path d="${projPath}" fill="none" stroke="${corProj}" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>` : '') +

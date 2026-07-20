@@ -543,7 +543,7 @@
 
   /* Sticky para tabela de grade: checkbox + expand + opção */
   #gradeTable {
-    min-width: 900px;
+    width: max-content;
   }
   #gradeTable th:nth-child(1),
   #gradeTable td:nth-child(1) {
@@ -585,19 +585,19 @@
     position: sticky; left: 46px; z-index: 2; background: #fff; width: 30px; min-width: 30px;
   }
   #gradeTable th:nth-child(3), #gradeTable td:nth-child(3) {
-    position: sticky; left: 76px; z-index: 2; background: #fff; min-width: 260px;
+    position: sticky; left: 76px; z-index: 2; background: #fff; width: 300px; min-width: 300px; max-width: 300px;
     box-shadow: 2px 0 4px rgba(0,0,0,0.04);
   }
-  /* Coleção +15% */
-  #gradeTable th:nth-child(4), #gradeTable td:nth-child(4) { width: 55px; min-width: 55px; max-width: 55px; }
-  /* Proj. (CX) +15% */
-  #gradeTable th:nth-child(5), #gradeTable td:nth-child(5) { width: 83px; min-width: 83px; max-width: 83px; }
+  /* Coleção */
+  #gradeTable th:nth-child(4), #gradeTable td:nth-child(4) { width: 90px; min-width: 90px; max-width: 90px; }
+  /* Proj. (CX) */
+  #gradeTable th:nth-child(5), #gradeTable td:nth-child(5) { width: 120px; min-width: 120px; max-width: 120px; }
   /* Var. LY oculta (reduzida 100%) */
   #gradeTable th:nth-child(6), #gradeTable td:nth-child(6) { display: none; }
-  /* Projeção mensal +15% */
-  #gradeTable th:nth-child(7), #gradeTable td:nth-child(7) { width: 110px; min-width: 110px; max-width: 110px; }
-  /* Histórico +15% */
-  #gradeTable th:nth-child(8), #gradeTable td:nth-child(8) { width: 67px; min-width: 67px; max-width: 67px; }
+  /* Projeção mensal */
+  #gradeTable th:nth-child(7), #gradeTable td:nth-child(7) { width: 190px; min-width: 190px; max-width: 190px; }
+  /* Histórico */
+  #gradeTable th:nth-child(8), #gradeTable td:nth-child(8) { width: 120px; min-width: 120px; max-width: 120px; }
   #gradeTable thead th:nth-child(1),
   #gradeTable thead th:nth-child(2),
   #gradeTable thead th:nth-child(3) {
@@ -4777,7 +4777,7 @@ function renderGradeTab() {
 function _sparklineProj(serie, meses, manualIdx, projStartIdx) {
   const n = serie.length;
   if (!n || serie.every(v => !v)) return '<span style="color:#cbd5e1;font-size:10px;">—</span>';
-  const w = 105, h = 34, pad = 5;
+  const w = 170, h = 34, pad = 5;
   const max = Math.max(...serie, 1);
   const xStep = n > 1 ? (w - 2 * pad) / (n - 1) : 0;
   const yv = v => h - pad - (v / max) * (h - 2 * pad);

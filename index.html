@@ -1214,7 +1214,7 @@
       <div class="results-header" style="align-items:center;flex-wrap:wrap;gap:14px;">
         <div>
           <strong style="font-size:15px">📊 Projeção de Demanda</strong>
-          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-OPC60c</span></div>
+          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-OPC60d</span></div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto;">
           <div style="position:relative;">
@@ -2383,7 +2383,7 @@ function normalizeData(data) {
   const colDescGrade= find(['DESC_GRADE','desc_grade','descgrade','descricao_grade','desc_lote']);
   const colColecao  = find(['COLECAO','colecao','coleção','colecoes','collection','temporada','season','linha']);
   // Código da cor — coluna "COR" separada da descrição "DESC_COR", se existir
-  let colCorCod = find(['CODCOR','codcor','cod_cor','codigocor','codigo_cor','corcod','cor_codigo','cod_color']);
+  let colCorCod = find(['CODCOR','codcor','cod_cor','codigocor','codigo_cor','corcod','cor_codigo','cod_color','codcolor','colorcode','cod_da_cor','refcor','ref_cor','codcorproduto','codigodacor']);
   if (!colCorCod) {
     const nCor = norm('cor');
     const m = normKeys.find(k => k.n === nCor && k.orig !== colCor);
@@ -5183,6 +5183,18 @@ function doRenderGradeTab() {
     const opKey = g.nome_familia + '|||' + g.desc_cor;
     g.opcao = opcaoPorProd[opKey] || '';   // descrição da coluna "Opção" do Excel de vendas
     g.codCor = codCorPorProd[opKey] || '';  // código da cor
+    // Fallback: se não houver coluna de código de cor, tenta extrair da string "Opção"
+    // (ex.: "HAVAIANAS BRASIL - 0001 - BRANCO" → "0001")
+    if (!g.codCor && g.opcao) {
+      const _famU = (g.nome_familia || '').toUpperCase();
+      const _corU = (g.desc_cor || '').toUpperCase();
+      const _cand = g.opcao.split(/\s*[-–—·|/]\s*/)
+        .map(p => p.trim())
+        .find(p => p && /\d/.test(p) && p.replace(/[^A-Za-z0-9]/g, '').length <= 8
+                   && p.toUpperCase() !== _corU && p.toUpperCase() !== _famU
+                   && _famU.indexOf(p.toUpperCase()) < 0 && _corU.indexOf(p.toUpperCase()) < 0);
+      if (_cand) g.codCor = _cand;
+    }
     const opAtiva = !opcoesDesativadas.has(opKey);
     g.grades = Object.values(g.gradesMap || {});
 

@@ -1038,7 +1038,24 @@
       </div>
       <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
 
-      <div style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:1px;margin:20px 0 8px;">📦 2. BASE DE ESTOQUE (OPCIONAL)</div>
+      <div style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:1px;margin:20px 0 8px;">🗂️ 2. BASE PRODUTO (RECOMENDADA) — RELACIONAMENTO POR GRADE</div>
+      <div class="upload-zone" id="uploadZoneProd" style="padding:30px 40px;" onclick="document.getElementById('fileInputProd').click()">
+        <span class="upload-icon" style="font-size:28px;">🗂️</span>
+        <h3 style="font-size:14px;">Arraste a Base Produto ou clique</h3>
+        <p style="font-size:12px;">GRADE, NOME_FAMILIA, DESC_COR, COD_COR, COLECAO, OPCAO, ITEM_ATIVO — dimensão que liga estoque e venda</p>
+        <span class="accepted">.CSV · .XLSX · .XLS</span>
+      </div>
+      <input type="file" id="fileInputProd" accept=".csv,.xlsx,.xls">
+
+      <div id="prodSuccess" style="display:none;align-items:center;gap:14px;padding:12px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #2563eb;border-radius:6px;margin-top:12px;">
+        <span style="font-size:24px;">🗂️</span>
+        <div style="flex:1;">
+          <div style="font-weight:700;font-size:13px;color:#1e3a8a;" id="prodFileName"></div>
+          <div style="font-size:11px;color:#1d4ed8;margin-top:2px;" id="prodFileMeta"></div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:1px;margin:20px 0 8px;">📦 3. BASE DE ESTOQUE (OPCIONAL)</div>
       <div class="upload-zone" id="uploadZoneStk" style="padding:30px 40px;" onclick="document.getElementById('fileInputStk').click()">
         <span class="upload-icon" style="font-size:28px;">📦</span>
         <h3 style="font-size:14px;">Arraste a Base_Stk ou clique</h3>
@@ -1047,7 +1064,7 @@
       </div>
       <input type="file" id="fileInputStk" accept=".csv,.xlsx,.xls">
 
-      <div style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:1px;margin:20px 0 8px;">👟 3. DISTRIBUIÇÃO DE NUMERAÇÃO POR CAIXA (OPCIONAL)</div>
+      <div style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:1px;margin:20px 0 8px;">👟 4. DISTRIBUIÇÃO DE NUMERAÇÃO POR CAIXA (OPCIONAL)</div>
       <div class="upload-zone" id="uploadZoneNum" style="padding:30px 40px;" onclick="document.getElementById('fileInputNum').click()">
         <span class="upload-icon" style="font-size:28px;">👟</span>
         <h3 style="font-size:14px;">Arraste a distribuição de numeração ou clique</h3>
@@ -1056,7 +1073,7 @@
       </div>
       <input type="file" id="fileInputNum" accept=".csv,.xlsx,.xls">
 
-      <div style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:1px;margin:20px 0 8px;">🧾 4. CARTEIRA ALPA (OPCIONAL) — PRODUTOS NOVOS EM CARTEIRA</div>
+      <div style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:1px;margin:20px 0 8px;">🧾 5. CARTEIRA ALPA (OPCIONAL) — PRODUTOS NOVOS EM CARTEIRA</div>
       <div class="upload-zone" id="uploadZoneCart" style="padding:30px 40px;" onclick="document.getElementById('fileInputCart').click()">
         <span class="upload-icon" style="font-size:28px;">🧾</span>
         <h3 style="font-size:14px;">Arraste a Carteira Alpa ou clique</h3>
@@ -1214,7 +1231,7 @@
       <div class="results-header" style="align-items:center;flex-wrap:wrap;gap:14px;">
         <div>
           <strong style="font-size:15px">📊 Projeção de Demanda</strong>
-          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-OPC60d</span></div>
+          <div class="results-meta">Distribuição por opção → grade com trimming, pesos por período e detecção de outliers <span style="color:#16a34a;font-weight:800;">· build VARLY-BP1</span></div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-left:auto;">
           <div style="position:relative;">
@@ -1452,6 +1469,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('fileInputStk').addEventListener('change', e => handleStkFile(e.target.files[0]));
   document.getElementById('fileInputNum').addEventListener('change', e => handleNumFile(e.target.files[0]));
   document.getElementById('fileInputCart').addEventListener('change', e => handleCarteiraFile(e.target.files[0]));
+  // Base Produto upload
+  const prodZone = document.getElementById('uploadZoneProd');
+  if (prodZone) {
+    prodZone.addEventListener('dragover', e => { e.preventDefault(); prodZone.classList.add('drag-over'); });
+    prodZone.addEventListener('dragleave', () => prodZone.classList.remove('drag-over'));
+    prodZone.addEventListener('drop', e => { e.preventDefault(); prodZone.classList.remove('drag-over'); handleProdutoFile(e.dataTransfer.files[0]); });
+    document.getElementById('fileInputProd').addEventListener('change', e => handleProdutoFile(e.target.files[0]));
+  }
 });
 
 function handleFile(file) {
@@ -1587,6 +1612,45 @@ function handleStkFile(file) {
       toast(`Base de estoque carregada: ${totalRegs.toLocaleString('pt-BR')} registros`, 'success');
     } catch(err) {
       toast('Erro ao processar Base_Stk: ' + err.message, 'error');
+      console.error(err);
+    }
+  };
+  if (ext === 'csv') reader.readAsText(file, 'UTF-8');
+  else reader.readAsArrayBuffer(file);
+}
+
+// ── BASE PRODUTO (dimensão canônica) ──────────────────────────────
+function handleProdutoFile(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['csv','xlsx','xls'].includes(ext)) { toast('Formato inválido para Base Produto.', 'error'); return; }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      let data;
+      if (ext === 'csv') {
+        data = parseCSV(e.target.result);
+      } else {
+        const arr = new Uint8Array(e.target.result);
+        const wb = XLSX.read(arr, { type:'array', cellDates:false, cellNF:false, cellHTML:false });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        data = XLSX.utils.sheet_to_json(ws, { defval:'', raw:true, blankrows:false });
+      }
+      produtoData = normalizeBaseProduto(data);
+      _buildBaseProdutoMap();
+      const totalRegs  = produtoData.length;
+      const totalAtivos = produtoData.filter(r => r.ativo).length;
+      const el = document.getElementById('prodSuccess');
+      if (el) {
+        el.style.display = 'flex';
+        document.getElementById('prodFileName').textContent = file.name;
+        document.getElementById('prodFileMeta').textContent =
+          `${totalRegs.toLocaleString('pt-BR')} produtos · ${totalAtivos.toLocaleString('pt-BR')} ativos (ITEM_ATIVO≠0)`;
+      }
+      toast(`Base Produto carregada: ${totalAtivos.toLocaleString('pt-BR')} produtos ativos`, 'success');
+    } catch(err) {
+      toast('Erro ao processar Base Produto: ' + err.message, 'error');
       console.error(err);
     }
   };
@@ -1922,7 +1986,7 @@ async function gerarFerramenta() {
     // Monta o HTML base a partir do próprio documento (funciona local, sem depender do GitHub)
     let html = window._pristineHTML || ('<!DOCTYPE html>\n' + document.documentElement.outerHTML);
 
-    const payload = { rawData, stkData };
+    const payload = { rawData, stkData, produtoData };
     const jsonStr = JSON.stringify(payload);
     // IMPORTANTE: nunca escrever a tag de script de forma contígua no código,
     // senão a serialização do próprio gerador se auto-corrompe. Montamos as tags
@@ -2052,6 +2116,8 @@ async function carregarDadosEmbedados() {
     rawData = d.rawData || [];
     stkData = d.stkData || [];
     numData = d.numData || [];
+    produtoData = d.produtoData || [];
+    if (produtoData.length) _buildBaseProdutoMap(); else window._baseProdutoMap = null;
     if (typeof buildNumPorGrade === 'function') window._numPorGrade = buildNumPorGrade(numData);
     // Só sobrescreve a carteira se a base publicada realmente tiver uma (não apaga a já carregada)
     if (d.carteiraData && d.carteiraData.length) {
@@ -2160,7 +2226,7 @@ async function publicarBase(btn) {
   }
   if (btn) { btn.disabled = true; btn.dataset._t = btn.textContent; btn.textContent = '⏳ Publicando…'; }
   try {
-    const json = JSON.stringify({ rawData, stkData, numData, carteiraData });
+    const json = JSON.stringify({ rawData, stkData, numData, carteiraData, produtoData });
     const gz = await _gzipToB64(json);
     if (!gz) throw new Error('Navegador sem suporte a compressão.');
     const { error } = await window.supabase.from('base_ativa').upsert({
@@ -2238,6 +2304,8 @@ async function carregarBaseSupabase() {
     rawData = d.rawData || [];
     stkData = d.stkData || [];
     numData = d.numData || [];
+    produtoData = d.produtoData || [];
+    if (produtoData.length) _buildBaseProdutoMap(); else window._baseProdutoMap = null;
     window._numPorGrade = buildNumPorGrade(numData);
     if (!rawData.length) {
       _setBanner('⚠️ A base publicada está vazia. Republique no seu PC.', 'vermelho');
@@ -2323,10 +2391,172 @@ function normalizeStkData(data) {
     })();
     return {
       ano_mes: anomes,
-      lote:    String(row[colLote] || '').trim(),
+      lote:    _normGrade(row[colLote]),
       estoque_cx: estQtd / 12  // pares → CX
     };
   }).filter(r => r.ano_mes && r.lote);
+}
+
+// ── BASE PRODUTO (dimensão canônica do produto) ───────────────────
+// Normaliza a GRADE para uma CHAVE consistente entre as 3 bases (venda, estoque, produto).
+// Números grandes (14 dígitos) viram string inteira sem notação científica.
+function _normGrade(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number') {
+    if (!isFinite(v)) return '';
+    // toLocaleString('fullwide') evita "9.9E+13" e garante dígitos completos
+    return Math.round(v).toLocaleString('fullwide', { useGrouping: false });
+  }
+  let s = String(v).trim();
+  if (!s) return '';
+  // Se for puramente numérico (com possível separador de milhar/decimal .0), reduz aos dígitos inteiros
+  if (/^[\d.,\s]+$/.test(s)) {
+    s = s.replace(/\s/g, '');
+    // remove parte decimal ",0"/".0" e separadores de milhar
+    if (s.indexOf(',') >= 0 && s.indexOf('.') >= 0) { s = s.replace(/\./g, '').replace(/,\d*$/, ''); }
+    else if (s.indexOf(',') >= 0) { s = s.replace(/,\d*$/, '').replace(/,/g, ''); }
+    else if (/\.\d+$/.test(s)) { s = s.replace(/\.\d+$/, ''); }
+    s = s.replace(/\./g, '');
+  }
+  return s;
+}
+
+let produtoData = [];             // linhas brutas normalizadas da base_produto
+// window._baseProdutoMap = { normGrade: { familia, cor, codCor, codFamilia, colecao, opcao,
+//                                         categoria, genero, marca, fornecedor, descGrade, ativo } }
+
+function normalizeBaseProduto(data) {
+  if (!data.length) return [];
+  const keys = Object.keys(data[0]);
+  const norm = s => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\s_\-\.]/g,'');
+  const normKeys = keys.map(k => ({ orig:k, n:norm(k) }));
+  const find = (cands) => {
+    for (const c of cands) { const nc = norm(c); const m = normKeys.find(k => k.n === nc); if (m) return m.orig; }
+    for (const c of cands) { const nc = norm(c); const m = normKeys.find(k => k.n.includes(nc) || nc.includes(k.n)); if (m) return m.orig; }
+    return null;
+  };
+  const cGrade   = find(['GRADE','grade','lote','LOTE']);
+  const cDescGr  = find(['DESC_GRADE','descgrade','descricao_grade']);
+  const cForn    = find(['FORNECEDOR','fornecedor']);
+  const cMarca   = find(['MARCA','marca']);
+  const cCodCor  = find(['COD_COR','codcor','codigo_cor']);
+  const cDescCor = find(['DESC_COR','desccor','descricao_cor']);
+  const cCodFam  = find(['COD_FAMILIA','codfamilia','codigo_familia']);
+  const cNomeFam = find(['NOME_FAMILIA','nomefamilia','familia']);
+  const cOpcao   = find(['OPCAO','opcao','option']);
+  const cColecao = find(['COLECAO','colecao','collection','temporada']);
+  const cCateg   = find(['CATEGORIA','categoria']);
+  const cGenero  = find(['GENERO','genero']);
+  const cAtivo   = find(['ITEM_ATIVO','itemativo','ativo','status_item']);
+  console.log('BaseProduto cols:', { cGrade, cNomeFam, cDescCor, cOpcao, cAtivo });
+
+  const clean = s => String(s == null ? '' : s).trim();
+  return data.map(row => {
+    const ativoRaw = clean(row[cAtivo]).toUpperCase();
+    const ativo = !(ativoRaw === '0' || ativoRaw === 'N' || ativoRaw === 'NAO' || ativoRaw === 'FALSE' || ativoRaw === 'INATIVO');
+    return {
+      grade:     _normGrade(row[cGrade]),
+      descGrade: clean(row[cDescGr]),
+      fornecedor: clean(row[cForn]),
+      marca:     clean(row[cMarca]),
+      codCor:    clean(row[cCodCor]),
+      descCor:   clean(row[cDescCor]),
+      codFamilia: clean(row[cCodFam]),
+      nomeFamilia: clean(row[cNomeFam]),
+      opcao:     clean(row[cOpcao]),
+      colecao:   clean(row[cColecao]),
+      categoria: clean(row[cCateg]),
+      genero:    clean(row[cGenero]),
+      ativo
+    };
+  }).filter(r => r.grade);
+}
+
+// Constrói o mapa GRADE → atributos (somente ITEM_ATIVO). Família/cor: usa NOME_FAMILIA/DESC_COR;
+// se vazios, usa OPCAO como nome (cor fica vazia).
+function _buildBaseProdutoMap() {
+  const map = {};
+  produtoData.forEach(p => {
+    if (!p.ativo) return;                 // ITEM_ATIVO = 0 → ignorado
+    if (map[p.grade]) return;             // 1ª ocorrência da grade
+    const familia = p.nomeFamilia || p.opcao || '';
+    const cor     = p.descCor || '';
+    if (!familia) return;                 // sem identidade utilizável
+    map[p.grade] = {
+      familia, cor,
+      codCor: p.codCor || '',
+      codFamilia: p.codFamilia || '',
+      colecao: p.colecao || '',
+      opcao: p.opcao || '',
+      categoria: p.categoria || '',
+      genero: p.genero || '',
+      marca: p.marca || '',
+      fornecedor: p.fornecedor || '',
+      descGrade: p.descGrade || ''
+    };
+  });
+  window._baseProdutoMap = map;
+  return map;
+}
+
+// Grade está ativa/reconhecida pela base_produto? (sem base_produto → sempre true, mantém comportamento antigo)
+function _gradeAtiva(grade) {
+  if (!window._baseProdutoMap) return true;
+  return !!window._baseProdutoMap[_normGrade(grade)];
+}
+
+// Aplica a base_produto: reescreve a identidade de cada linha de venda pela GRADE,
+// e injeta linhas "órfãs" para lotes que têm estoque mas não têm venda.
+// Idempotente: pode ser chamada a cada recálculo.
+function aplicarBaseProduto() {
+  if (!produtoData || !produtoData.length) { window._baseProdutoMap = null; return; }
+  const bp = _buildBaseProdutoMap();
+
+  // remove linhas órfãs de execuções anteriores (idempotência)
+  if (rawData.some(r => r._orphan)) rawData = rawData.filter(r => !r._orphan);
+
+  // 1) Reescreve identidade das linhas de venda pela base_produto
+  const gradesComVenda = new Set();
+  rawData.forEach(r => {
+    const g = _normGrade(r.grade);
+    r.grade = g;                          // normaliza a grade na própria linha
+    if (g) gradesComVenda.add(g);
+    const info = bp[g];
+    if (info) {
+      r.nome_familia = info.familia;
+      r.desc_cor     = info.cor;
+      r.cor          = info.codCor;
+      r.colecao      = info.colecao || r.colecao;
+      r.opcao        = info.opcao   || r.opcao;
+      if (info.categoria)  r.categoria  = info.categoria;
+      if (info.fornecedor) r.fornecedor = info.fornecedor;
+      if (info.marca)      r.marca      = info.marca;
+      if (info.descGrade)  r.desc_grade = r.desc_grade || info.descGrade;
+    }
+  });
+
+  // 2) Lotes órfãos: têm estoque, são ativos na base_produto, mas não têm venda → viram produtos com demanda 0
+  const ultimoMesStk = (() => {
+    let ult = '';
+    Object.keys(stkByLoteMonth).forEach(k => { const m = k.split('|')[1]; if (m && m > ult) ult = m; });
+    return ult;
+  })();
+  if (ultimoMesStk) {
+    const gradesComEstoque = new Set(Object.keys(stkByLoteMonth).map(k => k.split('|')[0]).map(_normGrade));
+    gradesComEstoque.forEach(g => {
+      if (!g || gradesComVenda.has(g)) return;
+      const info = bp[g];
+      if (!info) return;                  // não é ativo/reconhecido → ignora
+      rawData.push({
+        fornecedor: info.fornecedor, marca: info.marca,
+        nome_familia: info.familia, desc_cor: info.cor, cor: info.codCor,
+        opcao: info.opcao, categoria: info.categoria,
+        grade: g, desc_grade: info.descGrade, colecao: info.colecao,
+        cx: 0, ano_mes: ultimoMesStk, _orphan: true
+      });
+    });
+  }
+  _gradesCacheVersion++;   // invalida cache (identidade mudou)
 }
 
 function parseCSV(text) {
@@ -2453,7 +2683,7 @@ function normalizeData(data) {
       cor:          colCorCod ? String(row[colCorCod] || '').trim() : '',
       opcao:        String(row[colOpcao]  || '').trim(),
       categoria:    String(row[colCategoria] || '').trim(),
-      grade:        String(row[colGrade] || '').trim(),
+      grade:        _normGrade(row[colGrade]),
       desc_grade:   String(row[colDescGrade] || '').trim(),
       colecao:      String(row[colColecao] || '').trim(),
       cx:           (() => {
@@ -2870,13 +3100,14 @@ function updateWeightInfo() {} // mantida por compatibilidade
 // ── CALCULAR TODOS OS MESES ───────────────────────────────────
 function calcularTodos() {
   _gradesCacheVersion++;  // invalida cache de grades — dados podem ter mudado
+  aplicarBaseProduto();   // reescreve identidade pela base_produto (e injeta lotes órfãos)
 
   const forn  = document.getElementById('selFornecedor').value;
   const marca = document.getElementById('selMarca').value;
   if (!forn)  { toast('Selecione o fornecedor.', 'error'); return; }
   if (!marca) { toast('Selecione a marca.', 'error'); return; }
 
-  const base = rawData.filter(r => r.fornecedor === forn && r.marca === marca);
+  const base = rawData.filter(r => r.fornecedor === forn && r.marca === marca && _gradeAtiva(r.grade));
   if (!base.length) { toast('Nenhum dado encontrado para o filtro selecionado.', 'error'); return; }
 
   // Coleta todos os meses configurados
@@ -4231,6 +4462,19 @@ function setCoberturaMes(anomes, val) {
   renderCompraTab();
 }
 
+// Extrai o código da cor da string "Opção" (ex.: "HAVAIANAS BRASIL - 0001 - BRANCO" → "0001")
+window._extrairCodCor = function(opcao, fam, cor) {
+  if (!opcao) return '';
+  const famU = (fam || '').toUpperCase();
+  const corU = (cor || '').toUpperCase();
+  const cand = String(opcao).split(/\s*[-–—·|/]\s*/)
+    .map(p => p.trim())
+    .find(p => p && /\d/.test(p) && p.replace(/[^A-Za-z0-9]/g, '').length <= 8
+               && p.toUpperCase() !== corU && p.toUpperCase() !== famU
+               && famU.indexOf(p.toUpperCase()) < 0 && corU.indexOf(p.toUpperCase()) < 0);
+  return cand || '';
+};
+
 function renderCompraTab() {
   if (!window._exportData) return;
 
@@ -4280,6 +4524,21 @@ function doRenderCompraTab() {
   produtosSet.forEach(k => {
     const parts = k.split('|||');
     produtos.push({ key: k, nome_familia: parts[0], desc_cor: parts[1] });
+  });
+
+  // Código da cor por produto: usa a coluna de código (r.cor) ou extrai da string "Opção"
+  const codCorMapCompra = {};
+  const opcaoMapCompra = {};
+  allRows.forEach(r => {
+    const k = r.nome_familia + '|||' + r.desc_cor;
+    if (r.cor && !codCorMapCompra[k]) codCorMapCompra[k] = r.cor;
+    if (r.opcao && !opcaoMapCompra[k]) opcaoMapCompra[k] = r.opcao;
+  });
+  produtos.forEach(p => {
+    if (!codCorMapCompra[p.key] && opcaoMapCompra[p.key]) {
+      const cod = window._extrairCodCor(opcaoMapCompra[p.key], p.nome_familia, p.desc_cor);
+      if (cod) codCorMapCompra[p.key] = cod;
+    }
   });
 
   // Pré-computa constantes de cobertura POR MÊS (fora do loop de produtos!)
@@ -4480,6 +4739,7 @@ function doRenderCompraTab() {
     resultados.push({
       nome_familia: prod.nome_familia,
       desc_cor: prod.desc_cor,
+      codCor: codCorMapCompra[prod.key] || '',
       estoqueInicial,
       meses: linhaMeses,
       totalCompra,
@@ -4611,7 +4871,7 @@ function doRenderCompraTab() {
 
     const headerRow = `<tr data-search="${(r.nome_familia + ' ' + r.desc_cor).toLowerCase().replace(/"/g,'&quot;')}" ${hasGrades ? `class="compra-op-header" onclick="toggleCompraOp('${opKey}')" style="cursor:pointer;${r._novoCarteira ? 'background:#f0fdf4;box-shadow:inset 3px 0 0 #16a34a;' : ''}"` : `class="compra-op-header"${r._novoCarteira ? ' style="background:#f0fdf4;box-shadow:inset 3px 0 0 #16a34a;"' : ''}`}>
       <td style="text-align:center;font-size:14px;color:${hasGrades ? '#1d4ed8' : '#cbd5e1'};font-weight:800;" id="${opKey}-icon">${hasGrades ? '▶' : '·'}</td>
-      <td><strong style="${r._novoCarteira ? 'color:#166534;' : ''}">${r.nome_familia}</strong> <span style="color:#64748b;">· ${r.desc_cor}</span></td>
+      <td><strong style="${r._novoCarteira ? 'color:#166534;' : ''}">${r.nome_familia}</strong> <span style="color:#64748b;">· ${r.codCor ? r.codCor + ' ' : ''}${r.desc_cor}</span></td>
       <td style="font-size:12px;color:#64748b;">${(window._colecaoPorProduto && window._colecaoPorProduto[r.nome_familia + '|||' + r.desc_cor]) || '—'}</td>
       <td style="text-align:center;">${_cartParesC > 0
         ? `<span title="Carteira (Saldo a Faturar) do Excel: ${_cartParesC.toLocaleString('pt-BR')} pares${r._novoCarteira ? ' · produto NOVO' : ''}" style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:800;cursor:help;">${_cartCXC.toLocaleString('pt-BR')} CX</span>${r._novoCarteira ? ' <span style="font-size:8px;">🆕</span>' : ''}`
